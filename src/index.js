@@ -339,10 +339,10 @@ client.on('ready', async () => {
 
     const commands = [
         new SlashCommandBuilder()
-            .setName('link')
+            .setName('link_s') // コマンド名を変更
             .setDescription('Link your Twitch/YouTube accounts for stream monitoring'),
         new SlashCommandBuilder()
-            .setName('setup')
+            .setName('setup_s') // コマンド名を変更
             .setDescription('Set up the bot for this server')
             .addChannelOption(option =>
                 option.setName('channel')
@@ -362,7 +362,7 @@ client.on('ready', async () => {
 client.on('guildCreate', async guild => {
     try {
         const owner = await guild.fetchOwner();
-        await owner.send(`Thank you for adding me to your server (${guild.name})! Please use the /setup command to configure the bot by specifying a notification channel and live role.`);
+        await owner.send(`Thank you for adding me to your server (${guild.name})! Please use the /setup_s command to configure the bot by specifying a notification channel and live role.`);
     } catch (err) {
         console.error(`Failed to send DM to guild owner (guild: ${guild.id}):`, err.message);
     }
@@ -371,10 +371,10 @@ client.on('guildCreate', async guild => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
-    if (interaction.commandName === 'link') {
+    if (interaction.commandName === 'link_s') { // コマンド名を変更
         const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections`;
         await interaction.reply(`Please authenticate to link your Twitch/YouTube accounts:\n${oauthUrl}`);
-    } else if (interaction.commandName === 'setup') {
+    } else if (interaction.commandName === 'setup_s') { // コマンド名を変更
         if (!interaction.member.permissions.has('ADMINISTRATOR')) {
             return interaction.reply('You need Administrator permissions to use this command.');
         }
