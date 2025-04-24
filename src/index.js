@@ -1,21 +1,23 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
-const axios = require('axios');
-const express = require('express');
-const fs = require('fs').promises;
-const path = require('path');
+// 必要なモジュールをインポート
+require('dotenv').config(); // 環境変数（.envファイル）を読み込む
+const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js'); // Discord.jsモジュール（ボットの操作用）
+const axios = require('axios'); // HTTPリクエストを送るためのライブラリ
+const express = require('express'); // OAuth認証用の簡易サーバーを立てるためのライブラリ
+const fs = require('fs').promises; // ファイル操作（非同期）用のモジュール
+const path = require('path'); // ファイルパスを操作するためのモジュール
 
+// 環境変数から必要な値を読み込む
 const {
-    DISCORD_TOKEN,
-    TWITCH_CLIENT_ID,
-    TWITCH_CLIENT_SECRET,
-    DISCORD_CLIENT_ID,
-    DISCORD_CLIENT_SECRET,
-    YOUTUBE_API_KEY,
-    REDIRECT_URI = 'http://localhost:3000/callback',
+    DISCORD_TOKEN, // Discordボットのトークン
+    TWITCH_CLIENT_ID, // Twitch APIのクライアントID
+    TWITCH_CLIENT_SECRET, // Twitch APIのクライアントシークレット
+    DISCORD_CLIENT_ID, // Discord OAuth用のクライアントID
+    DISCORD_CLIENT_SECRET, // Discord OAuth用のクライアントシークレット
+    YOUTUBE_API_KEY, // YouTube APIキー
+    REDIRECT_URI = 'http://localhost:3000/callback', // OAuthリダイレクトURI（デフォルト値）
 } = process.env;
 
-// 環境変数のバリデーション
+// 環境変数が設定されているか確認（未設定の場合はエラーで終了）
 const requiredEnvVars = [
     'DISCORD_TOKEN',
     'TWITCH_CLIENT_ID',
@@ -26,60 +28,67 @@ const requiredEnvVars = [
 ];
 for (const envVar of requiredEnvVars) {
     if (!process.env[envVar]) {
-        console.error(`Error: Environment variable ${envVar} is not set.`);
+        console.error(`エラー: 環境変数 ${envVar} が設定されていません。`);
         process.exit(1);
     }
 }
 
+// Discordクライアントを初期化（必要なインテントを設定）
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.Guilds, // サーバー情報の取得
+        GatewayIntentBits.GuildMembers, // メンバーの取得（ロール操作用）
+        GatewayIntentBits.GuildMessages, // メッセージの取得
+        GatewayIntentBits.MessageContent, // メッセージ内容の取得
     ],
 });
 
-const STREAMERS_FILE = path.join(__dirname, '../data/streamers.json');
-const YOUTUBERS_FILE = path.join(__dirname, '../data/youtubers.json');
-const SERVER_SETTINGS_FILE = path.join(__dirname, '../data/serverSettings.json');
+// ファイルパスを定義（データ保存用）
+const STREAMERS_FILE = path.join(__dirname, '../data/streamers.json'); // Twitchストリーマーデータの保存先
+const YOUTUBERS_FILE = path.join(__dirname, '../data/youtubers.json'); // YouTube配信者データの保存先
+const SERVER_SETTINGS_FILE = path.join(__dirname, '../data/serverSettings.json'); // サーバー設定データの保存先
 
+// ストリーマーデータ（streamers.json）を読み込む関数
 async function loadStreamers() {
     try {
         const data = await fs.readFile(STREAMERS_FILE, 'utf8');
         return JSON.parse(data);
     } catch (err) {
-        return [];
+        return []; // エラーがあれば空配列を返す
     }
 }
 
+// ストリーマーデータを保存する関数
 async function saveStreamers(streamers) {
     try {
         await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
     } catch (err) {
-        console.error('Error saving streamers:', err.message);
+        console.error('ストリーマーデータ保存エラー:', err.message);
         throw err;
     }
 }
 
+// YouTube配信者データ（youtubers.json）を読み込む関数
 async function loadYoutubers() {
     try {
         const data = await fs.readFile(YOUTUBERS_FILE, 'utf8');
         return JSON.parse(data);
     } catch (err) {
-        return [];
+        return []; // エラーがあれば空配列を返す
     }
 }
 
+// YouTube配信者データを保存する関数
 async function saveYoutubers(youtubers) {
     try {
         await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
     } catch (err) {
-        console.error('Error saving youtubers:', err.message);
+        console.error('YouTube配信者データ保存エラー:', err.message);
         throw err;
     }
 }
 
+// サーバー設定（serverSettings.json）を読み込む関数
 async function loadServerSettings() {
     try {
         const data = await fs.readFile(SERVER_SETTINGS_FILE, 'utf8');
@@ -88,19 +97,21 @@ async function loadServerSettings() {
         if (!settings.youtubeStatus) settings.youtubeStatus = {};
         return settings;
     } catch (err) {
-        return { servers: {}, streamStatus: {}, youtubeStatus: {} };
+        return { servers: {}, streamStatus: {}, youtubeStatus: {} }; // エラーがあればデフォルト値を返す
     }
 }
 
+// サーバー設定を保存する関数
 async function saveServerSettings(settings) {
     try {
         await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(settings, null, 2));
     } catch (err) {
-        console.error('Error saving server settings:', err.message);
+        console.error('サーバー設定保存エラー:', err.message);
         throw err;
     }
 }
 
+// Twitch APIトークンを取得する関数
 async function getTwitchToken() {
     try {
         const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
@@ -112,11 +123,12 @@ async function getTwitchToken() {
         });
         return response.data.access_token;
     } catch (err) {
-        console.error('Twitch Token Error:', err.response?.data || err.message);
+        console.error('Twitchトークン取得エラー:', err.response?.data || err.message);
         return null;
     }
 }
 
+// Discord OAuthでユーザーの接続情報（Twitch/YouTubeアカウント）を取得する関数
 async function getConnections(accessToken) {
     try {
         const response = await axios.get('https://discord.com/api/v10/users/@me/connections', {
@@ -129,11 +141,12 @@ async function getConnections(accessToken) {
         }
         return connections;
     } catch (err) {
-        console.error('Connections Error:', err.response?.data || err.message);
+        console.error('接続情報取得エラー:', err.response?.data || err.message);
         return { twitch_username: '', youtube_channel_id: '' };
     }
 }
 
+// Twitchストリームの状態をチェックする関数
 async function checkTwitchStreams() {
     const streamers = await loadStreamers();
     if (!streamers.length) return;
@@ -144,7 +157,7 @@ async function checkTwitchStreams() {
     const settings = await loadServerSettings();
     const currentStatus = {};
 
-    const chunkSize = 100;
+    const chunkSize = 100; // レート制限対策で100人ずつリクエスト
     for (let i = 0; i < streamers.length; i += chunkSize) {
         const chunk = streamers.slice(i, i + chunkSize);
         const query = chunk.map(s => `user_login=${s.username}`).join('&');
@@ -168,7 +181,7 @@ async function checkTwitchStreams() {
 
                         const botMember = channel.guild.members.me;
                         if (!channel.permissionsFor(botMember).has('SEND_MESSAGES')) {
-                            console.warn(`No permission to send messages in channel ${channel.id} (guild: ${guildId})`);
+                            console.warn(`チャンネル ${channel.id} (サーバー: ${guildId}) でメッセージ送信権限がありません`);
                             continue;
                         }
 
@@ -179,7 +192,7 @@ async function checkTwitchStreams() {
                         if (member) {
                             const role = guild.roles.cache.get(guildSettings.liveRoleId);
                             if (!role || role.position >= botMember.roles.highest.position) {
-                                console.warn(`Cannot manage role ${guildSettings.liveRoleId} in guild ${guildId}`);
+                                console.warn(`サーバー ${guildId} でロール ${guildSettings.liveRoleId} を管理できません`);
                                 continue;
                             }
                             await member.roles.add(guildSettings.liveRoleId);
@@ -190,7 +203,7 @@ async function checkTwitchStreams() {
                 }
             }
         } catch (err) {
-            console.error('Twitch Stream Check Error:', err.response?.data || err.message);
+            console.error('Twitchストリームチェックエラー:', err.response?.data || err.message);
         }
     }
 
@@ -212,6 +225,7 @@ async function checkTwitchStreams() {
     }
 }
 
+// YouTubeライブ配信の状態をチェックする関数
 async function checkYouTubeStreams() {
     const youtubers = await loadYoutubers();
     if (!youtubers.length) return;
@@ -235,7 +249,7 @@ async function checkYouTubeStreams() {
 
                     const botMember = channel.guild.members.me;
                     if (!channel.permissionsFor(botMember).has('SEND_MESSAGES')) {
-                        console.warn(`No permission to send messages in channel ${channel.id} (guild: ${guildId})`);
+                        console.warn(`チャンネル ${channel.id} (サーバー: ${guildId}) でメッセージ送信権限がありません`);
                         continue;
                     }
 
@@ -246,7 +260,7 @@ async function checkYouTubeStreams() {
                     if (member) {
                         const role = guild.roles.cache.get(guildSettings.liveRoleId);
                         if (!role || role.position >= botMember.roles.highest.position) {
-                            console.warn(`Cannot manage role ${guildSettings.liveRoleId} in guild ${guildId}`);
+                            console.warn(`サーバー ${guildId} でロール ${guildSettings.liveRoleId} を管理できません`);
                             continue;
                         }
                         await member.roles.add(guildSettings.liveRoleId);
@@ -269,16 +283,18 @@ async function checkYouTubeStreams() {
                 await saveServerSettings(settings);
             }
         } catch (err) {
-            console.error('YouTube Stream Check Error:', err.response?.data || err.message);
+            console.error('YouTubeストリームチェックエラー:', err.response?.data || err.message);
         }
     }
 }
 
+// OAuth認証用の簡易サーバーを設定（/link_sコマンド用）
 const app = express();
 app.get('/callback', async (req, res) => {
-    if (!req.query.code) return res.send('Error: No code provided.');
+    if (!req.query.code) return res.send('エラー: コードが提供されていません。');
 
     try {
+        // Discord OAuthでアクセストークンを取得
         const response = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
             client_id: DISCORD_CLIENT_ID,
             client_secret: DISCORD_CLIENT_SECRET,
@@ -290,6 +306,7 @@ app.get('/callback', async (req, res) => {
         const accessToken = response.data.access_token;
         const connections = await getConnections(accessToken);
 
+        // ユーザー情報を取得（Discord IDを取得）
         const userResponse = await axios.get('https://discord.com/api/v10/users/@me', {
             headers: { Authorization: `Bearer ${accessToken}` },
         });
@@ -303,7 +320,7 @@ app.get('/callback', async (req, res) => {
                 await saveStreamers(streamers);
                 for (const guildSettings of Object.values(settings.servers)) {
                     const channel = client.channels.cache.get(guildSettings.channelId);
-                    if (channel) channel.send(`Linked Twitch account: ${connections.twitch_username}`);
+                    if (channel) channel.send(`Twitchアカウントをリンクしました: ${connections.twitch_username}`);
                 }
             }
         }
@@ -315,75 +332,84 @@ app.get('/callback', async (req, res) => {
                 await saveYoutubers(youtubers);
                 for (const guildSettings of Object.values(settings.servers)) {
                     const channel = client.channels.cache.get(guildSettings.channelId);
-                    if (channel) channel.send(`Linked YouTube channel: ${connections.youtube_channel_id}`);
+                    if (channel) channel.send(`YouTubeチャンネルをリンクしました: ${connections.youtube_channel_id}`);
                 }
             }
         }
 
-        res.send('Account linked successfully! You can close this page.');
+        // リンク成功時のメッセージ（ブラウザに表示）
+        res.send('あなたの配信を通知できるようになりました♡');
     } catch (err) {
-        console.error('OAuth Error:', err.response?.data || err.message);
-        res.send('Error: Failed to authenticate.');
+        console.error('OAuthエラー:', err.response?.data || err.message);
+        res.send('エラー: 認証に失敗しました。');
     }
 });
 
+// OAuthサーバーをポート3000で起動
 app.listen(3000, () => {
-    console.log('OAuth server running on http://localhost:3000');
+    console.log('OAuthサーバーが http://localhost:3000 で起動しました');
     if (REDIRECT_URI.startsWith('http://') && !REDIRECT_URI.includes('localhost')) {
-        console.warn('WARNING: Using HTTP on a non-localhost URI. HTTPS is recommended for security.');
+        console.warn('警告: 非localhost URIでHTTPを使用しています。セキュリティのためにHTTPSを推奨します。');
     }
 });
 
+// ボットがオンラインになったときの処理
 client.on('ready', async () => {
-    console.log('Bot is online!');
+    console.log('ボットがオンラインになりました！');
 
+    // スラッシュコマンドを登録
     const commands = [
         new SlashCommandBuilder()
-            .setName('link_s') // コマンド名を変更
-            .setDescription('Link your Twitch/YouTube accounts for stream monitoring'),
+            .setName('link_s')
+            .setDescription('Twitch/YouTubeアカウントをリンクして配信監視を有効にします'),
         new SlashCommandBuilder()
-            .setName('setup_s') // コマンド名を変更
-            .setDescription('Set up the bot for this server')
+            .setName('setup_s')
+            .setDescription('このサーバーでボットを設定します')
             .addChannelOption(option =>
                 option.setName('channel')
-                    .setDescription('The channel to send stream notifications')
+                    .setDescription('配信通知を送信するチャンネル')
                     .setRequired(true))
             .addRoleOption(option =>
                 option.setName('live_role')
-                    .setDescription('The role to assign to live streamers')
+                    .setDescription('配信中に付与するロール')
                     .setRequired(true)),
     ];
     await client.application.commands.set(commands);
 
-    setInterval(checkTwitchStreams, 60 * 1000);
-    setInterval(checkYouTubeStreams, 15 * 60 * 1000);
+    // 定期的にTwitchとYouTubeの配信状態をチェック
+    setInterval(checkTwitchStreams, 60 * 1000); // 1分間隔でTwitchをチェック
+    setInterval(checkYouTubeStreams, 15 * 60 * 1000); // 15分間隔でYouTubeをチェック
 });
 
+// ボットが新しいサーバーに追加されたときの処理
 client.on('guildCreate', async guild => {
     try {
         const owner = await guild.fetchOwner();
-        await owner.send(`Thank you for adding me to your server (${guild.name})! Please use the /setup_s command to configure the bot by specifying a notification channel and live role.`);
+        await owner.send(`サーバー (${guild.name}) に追加してくれてありがとう！/setup_s コマンドを使って、通知チャンネルとライブロールを設定してください。`);
     } catch (err) {
-        console.error(`Failed to send DM to guild owner (guild: ${guild.id}):`, err.message);
+        console.error(`サーバーオーナーにDM送信失敗 (サーバー: ${guild.id}):`, err.message);
     }
 });
 
+// スラッシュコマンドが実行されたときの処理
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
-    if (interaction.commandName === 'link_s') { // コマンド名を変更
+    if (interaction.commandName === 'link_s') {
+        // /link_s コマンド: ユーザーに認証URLを提供
         const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections`;
-        await interaction.reply(`Please authenticate to link your Twitch/YouTube accounts:\n${oauthUrl}`);
-    } else if (interaction.commandName === 'setup_s') { // コマンド名を変更
+        await interaction.reply(`Twitch/YouTubeアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`);
+    } else if (interaction.commandName === 'setup_s') {
+        // /setup_s コマンド: サーバー設定（管理者専用）
         if (!interaction.member.permissions.has('ADMINISTRATOR')) {
-            return interaction.reply('You need Administrator permissions to use this command.');
+            return interaction.reply('このコマンドを使用するには管理者権限が必要です。');
         }
 
         const channel = interaction.options.getChannel('channel');
         const liveRole = interaction.options.getRole('live_role');
 
         if (channel.type !== 'GUILD_TEXT') {
-            return interaction.reply('Please select a text channel.');
+            return interaction.reply('テキストチャンネルを選択してください。');
         }
 
         const settings = await loadServerSettings();
@@ -393,8 +419,10 @@ client.on('interactionCreate', async interaction => {
         };
         await saveServerSettings(settings);
 
-        await interaction.reply(`Setup completed! Notifications will be sent to ${channel.name}, and the live role ${liveRole.name} will be used.`);
+        // 設定成功時のメッセージ
+        await interaction.reply(`皆さんの配信通知が行えるようになりました。管理者様に指定されてたテキストチャンネルで/link_sと入力して私に通知させてください！`);
     }
 });
 
+// ボットを起動
 client.login(DISCORD_TOKEN);
