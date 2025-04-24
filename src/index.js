@@ -7,13 +7,12 @@ const path = require('path');
 
 const {
     DISCORD_TOKEN,
-    DISCORD_CHANNEL_ID,
-    DISCORD_LIVE_ROLE_ID,
     TWITCH_CLIENT_ID,
     TWITCH_CLIENT_SECRET,
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     YOUTUBE_API_KEY,
+    REDIRECT_URI = 'http://localhost:3000/callback',
 } = process.env;
 
 const client = new Client({
@@ -27,6 +26,7 @@ const client = new Client({
 
 const STREAMERS_FILE = path.join(__dirname, '../streamers.json');
 const YOUTUBERS_FILE = path.join(__dirname, '../youtubers.json');
+const SERVER_SETTINGS_FILE = path.join(__dirname, '../serverSettings.json');
 
 async function loadStreamers() {
     try {
@@ -52,6 +52,19 @@ async function loadYoutubers() {
 
 async function saveYoutubers(youtubers) {
     await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+}
+
+async function loadServerSettings() {
+    try {
+        const data = await fs.readFile(SERVER_SETTINGS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (err) {
+        return { servers: {} };
+    }
+}
+
+async function saveServerSettings(settings) {
+    await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
 async function getTwitchToken() {
@@ -103,29 +116,40 @@ async function checkTwitchStreams() {
             },
         });
 
+        const settings = await loadServerSettings();
         const currentStatus = {};
         for (const stream of response.data.data) {
             const streamer = stream.user_login;
             currentStatus[streamer] = true;
 
             if (!global.streamStatus[streamer]) {
-                const channel = client.channels.cache.get(DISCORD_CHANNEL_ID);
-                channel.send(`${streamer} is live on Twitch!\nhttps://twitch.tv/${streamer}`);
+                const streamerInfo = streamers.find(s => s.username === streamer);
+                for (const [guildId, guildSettings] of Object.entries(settings.servers)) {
+                    const channel = client.channels.cache.get(guildSettings.channelId);
+                    if (!channel) continue;
 
-                const user = streamers.find(s => s.username === streamer);
-                const guild = channel.guild;
-                const member = await guild.members.fetch(user.discord_id);
-                await member.roles.add(DISCORD_LIVE_ROLE_ID);
-                global.streamStatus[streamer] = true;
+                    channel.send(`${streamer} is live on Twitch!\nhttps://twitch.tv/${streamer}`);
+
+                    const guild = client.guilds.cache.get(guildId);
+                    const member = await guild.members.fetch(streamerInfo.discord_id).catch(() => null);
+                    if (member) {
+                        await member.roles.add(guildSettings.liveRoleId);
+                    }
+                    global.streamStatus[streamer] = true;
+                }
             }
         }
 
         for (const s of streamers) {
             if (global.streamStatus[s.username] && !currentStatus[s.username]) {
                 global.streamStatus[s.username] = false;
-                const guild = client.guilds.cache.get(channel.guild.id);
-                const member = await guild.members.fetch(s.discord_id);
-                await member.roles.remove(DISCORD_LIVE_ROLE_ID);
+                for (const [guildId, guildSettings] of Object.entries(settings.servers)) {
+                    const guild = client.guilds.cache.get(guildId);
+                    const member = await guild.members.fetch(s.discord_id).catch(() => null);
+                    if (member) {
+                        await member.roles.remove(guildSettings.liveRoleId);
+                    }
+                }
             }
         }
     } catch (err) {
@@ -137,6 +161,7 @@ async function checkYouTubeStreams() {
     const youtubers = await loadYoutubers();
     if (!youtubers.length) return;
 
+    const settings = await loadServerSettings();
     for (const yt of youtubers) {
         try {
             const response = await axios.get(
@@ -148,18 +173,29 @@ async function checkYouTubeStreams() {
             if (isLive && !wasLive) {
                 const videoId = response.data.items[0].id.videoId;
                 const channelName = response.data.items[0].snippet.channelTitle;
-                const channel = client.channels.cache.get(DISCORD_CHANNEL_ID);
-                channel.send(`${channelName} is live on YouTube!\nhttps://youtube.com/watch?v=${videoId}`);
 
-                const guild = channel.guild;
-                const member = await guild.members.fetch(yt.discord_id);
-                await member.roles.add(DISCORD_LIVE_ROLE_ID);
+                for (const [guildId, guildSettings] of Object.entries(settings.servers)) {
+                    const channel = client.channels.cache.get(guildSettings.channelId);
+                    if (!channel) continue;
+
+                    channel.send(`${channelName} is live on YouTube!\nhttps://youtube.com/watch?v=${videoId}`);
+
+                    const guild = client.guilds.cache.get(guildId);
+                    const member = await guild.members.fetch(yt.discord_id).catch(() => null);
+                    if (member) {
+                        await member.roles.add(guildSettings.liveRoleId);
+                    }
+                }
                 global.youtubeStatus[yt.channel_id] = true;
             } else if (!isLive && wasLive) {
                 global.youtubeStatus[yt.channel_id] = false;
-                const guild = channel.guild;
-                const member = await guild.members.fetch(yt.discord_id);
-                await member.roles.remove(DISCORD_LIVE_ROLE_ID);
+                for (const [guildId, guildSettings] of Object.entries(settings.servers)) {
+                    const guild = client.guilds.cache.get(guildId);
+                    const member = await guild.members.fetch(yt.discord_id).catch(() => null);
+                    if (member) {
+                        await member.roles.remove(guildSettings.liveRoleId);
+                    }
+                }
             }
         } catch (err) {
             console.error('YouTube Stream Check Error:', err.response?.data || err.message);
@@ -179,7 +215,7 @@ app.get('/callback', async (req, res) => {
             client_secret: DISCORD_CLIENT_SECRET,
             grant_type: 'authorization_code',
             code: req.query.code,
-            redirect_uri: 'http://localhost:3000/callback',
+            redirect_uri: REDIRECT_URI,
         }));
 
         const accessToken = response.data.access_token;
@@ -190,13 +226,18 @@ app.get('/callback', async (req, res) => {
         });
         const discordId = userResponse.data.id;
 
+        const settings = await loadServerSettings();
         if (connections.twitch_username) {
             const streamers = await loadStreamers();
             if (!streamers.some(s => s.username === connections.twitch_username)) {
                 streamers.push({ username: connections.twitch_username, discord_id: discordId });
                 await saveStreamers(streamers);
-                const channel = client.channels.cache.get(DISCORD_CHANNEL_ID);
-                channel.send(`Linked Twitch account: ${connections.twitch_username}`);
+                for (const guildSettings of Object.values(settings.servers)) {
+                    const channel = client.channels.cache.get(guildSettings.channelId);
+                    if (channel) {
+                        channel.send(`Linked Twitch account: ${connections.twitch_username}`);
+                    }
+                }
             }
         }
 
@@ -205,8 +246,12 @@ app.get('/callback', async (req, res) => {
             if (!youtubers.some(y => y.channel_id === connections.youtube_channel_id)) {
                 youtubers.push({ channel_id: connections.youtube_channel_id, discord_id: discordId });
                 await saveYoutubers(youtubers);
-                const channel = client.channels.cache.get(DISCORD_CHANNEL_ID);
-                channel.send(`Linked YouTube channel: ${connections.youtube_channel_id}`);
+                for (const guildSettings of Object.values(settings.servers)) {
+                    const channel = client.channels.cache.get(guildSettings.channelId);
+                    if (channel) {
+                        channel.send(`Linked YouTube channel: ${connections.youtube_channel_id}`);
+                    }
+                }
             }
         }
 
@@ -229,18 +274,55 @@ client.on('ready', async () => {
         new SlashCommandBuilder()
             .setName('link')
             .setDescription('Link your Twitch/YouTube accounts for stream monitoring'),
+        new SlashCommandBuilder()
+            .setName('setup')
+            .setDescription('Set up the bot for this server')
+            .addChannelOption(option =>
+                option.setName('channel')
+                    .setDescription('The channel to send stream notifications')
+                    .setRequired(true))
+            .addRoleOption(option =>
+                option.setName('live_role')
+                    .setDescription('The role to assign to live streamers')
+                    .setRequired(true)),
     ];
     await client.application.commands.set(commands);
 
     setInterval(checkTwitchStreams, 60 * 1000);
-    setInterval(checkYouTubeStreams, 5 * 60 * 1000);
+    setInterval(checkYouTubeStreams, 10 * 60 * 1000);
+});
+
+client.on('guildCreate', async guild => {
+    const owner = await guild.fetchOwner();
+    owner.send(`Thank you for adding me to your server (${guild.name})! Please use the /setup command to configure the bot by specifying a notification channel and live role.`);
 });
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
+
     if (interaction.commandName === 'link') {
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&response_type=code&scope=identify%20connections`;
+        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections`;
         await interaction.reply(`Please authenticate to link your Twitch/YouTube accounts:\n${oauthUrl}`);
+    } else if (interaction.commandName === 'setup') {
+        if (!interaction.member.permissions.has('ADMINISTRATOR')) {
+            return interaction.reply('You need Administrator permissions to use this command.');
+        }
+
+        const channel = interaction.options.getChannel('channel');
+        const liveRole = interaction.options.getRole('live_role');
+
+        if (channel.type !== 'GUILD_TEXT') {
+            return interaction.reply('Please select a text channel.');
+        }
+
+        const settings = await loadServerSettings();
+        settings.servers[interaction.guild.id] = {
+            channelId: channel.id,
+            liveRoleId: liveRole.id,
+        };
+        await saveServerSettings(settings);
+
+        await interaction.reply(`Setup completed! Notifications will be sent to ${channel.name}, and the live role ${liveRole.name} will be used.`);
     }
 });
 
