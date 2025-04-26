@@ -3,6 +3,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
+const https = require('https'); // HTTPSモジュールを追加
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -14,7 +15,7 @@ const {
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     YOUTUBE_API_KEY,
-    REDIRECT_URI = 'http://localhost:3000/callback',
+    REDIRECT_URI = 'https://zaronyanbot.com:3000/callback', // HTTPSに変更
 } = process.env;
 
 // 環境変数が設定されているか確認
@@ -290,6 +291,13 @@ async function checkYouTubeStreams() {
 
 // OAuth認証用のサーバーを設定
 const app = express();
+
+// HTTPSサーバーの設定
+const httpsOptions = {
+    cert: require('fs').readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'), // Let's Encryptの証明書
+    key: require('fs').readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'), // Let's Encryptの秘密鍵
+};
+
 app.get('/callback', async (req, res) => {
     if (!req.query.code) return res.send('エラー: コードが提供されていません。');
 
@@ -352,9 +360,9 @@ app.get('/callback', async (req, res) => {
     }
 });
 
-// OAuthサーバーを起動
-app.listen(3000, () => {
-    console.log('OAuthサーバーが http://localhost:3000 で起動しました');
+// HTTPSサーバーを起動
+https.createServer(httpsOptions, app).listen(3000, () => {
+    console.log('OAuthサーバーが https://zaronyanbot.com:3000 で起動しました');
     if (REDIRECT_URI.startsWith('http://') && !REDIRECT_URI.includes('localhost')) {
         console.warn('警告: 非localhost URIでHTTPを使用しています。セキュリティのためにHTTPSを推奨します。');
     }
