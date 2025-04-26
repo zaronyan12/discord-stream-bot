@@ -388,7 +388,7 @@ client.on('ready', async () => {
 
     // 定期的に配信状態をチェック
     setInterval(checkTwitchStreams, 60 * 1000);
-    setInterval(checkYouTubeStreams, 15 * 60 * 1000);
+    setInterval(checkYouTubeStreams, 10 * 60 * 1000);
 });
 
 // ボットが新しいサーバーに追加されたとき
