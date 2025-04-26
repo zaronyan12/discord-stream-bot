@@ -1,23 +1,23 @@
 // 必要なモジュールをインポート
-require('dotenv').config(); // 環境変数（.envファイル）を読み込む
-const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js'); // Discord.jsモジュール（ボットの操作用）
-const axios = require('axios'); // HTTPリクエストを送るためのライブラリ
-const express = require('express'); // OAuth認証用の簡易サーバーを立てるためのライブラリ
-const fs = require('fs').promises; // ファイル操作（非同期）用のモジュール
-const path = require('path'); // ファイルパスを操作するためのモジュール
+require('dotenv').config();
+const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
+const axios = require('axios');
+const express = require('express');
+const fs = require('fs').promises;
+const path = require('path');
 
 // 環境変数から必要な値を読み込む
 const {
-    DISCORD_TOKEN, // Discordボットのトークン
-    TWITCH_CLIENT_ID, // Twitch APIのクライアントID
-    TWITCH_CLIENT_SECRET, // Twitch APIのクライアントシークレット
-    DISCORD_CLIENT_ID, // Discord OAuth用のクライアントID
-    DISCORD_CLIENT_SECRET, // Discord OAuth用のクライアントシークレット
-    YOUTUBE_API_KEY, // YouTube APIキー
-    REDIRECT_URI = 'http://localhost:3000/callback', // OAuthリダイレクトURI（デフォルト値）
+    DISCORD_TOKEN,
+    TWITCH_CLIENT_ID,
+    TWITCH_CLIENT_SECRET,
+    DISCORD_CLIENT_ID,
+    DISCORD_CLIENT_SECRET,
+    YOUTUBE_API_KEY,
+    REDIRECT_URI = 'http://localhost:3000/callback',
 } = process.env;
 
-// 環境変数が設定されているか確認（未設定の場合はエラーで終了）
+// 環境変数が設定されているか確認
 const requiredEnvVars = [
     'DISCORD_TOKEN',
     'TWITCH_CLIENT_ID',
@@ -33,32 +33,32 @@ for (const envVar of requiredEnvVars) {
     }
 }
 
-// Discordクライアントを初期化（必要なインテントを設定）
+// Discordクライアントを初期化
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds, // サーバー情報の取得
-        GatewayIntentBits.GuildMembers, // メンバーの取得（ロール操作用）
-        GatewayIntentBits.GuildMessages, // メッセージの取得
-        GatewayIntentBits.MessageContent, // メッセージ内容の取得
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
     ],
 });
 
-// ファイルパスを定義（データ保存用）
-const STREAMERS_FILE = path.join(__dirname, '../data/streamers.json'); // Twitchストリーマーデータの保存先
-const YOUTUBERS_FILE = path.join(__dirname, '../data/youtubers.json'); // YouTube配信者データの保存先
-const SERVER_SETTINGS_FILE = path.join(__dirname, '../data/serverSettings.json'); // サーバー設定データの保存先
+// ファイルパスを定義
+const STREAMERS_FILE = path.join(__dirname, '../data/streamers.json');
+const YOUTUBERS_FILE = path.join(__dirname, '../data/youtubers.json');
+const SERVER_SETTINGS_FILE = path.join(__dirname, '../data/serverSettings.json');
 
-// ストリーマーデータ（streamers.json）を読み込む関数
+// ストリーマーデータを読み込む
 async function loadStreamers() {
     try {
         const data = await fs.readFile(STREAMERS_FILE, 'utf8');
         return JSON.parse(data);
     } catch (err) {
-        return []; // エラーがあれば空配列を返す
+        return [];
     }
 }
 
-// ストリーマーデータを保存する関数
+// ストリーマーデータを保存
 async function saveStreamers(streamers) {
     try {
         await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
@@ -68,17 +68,17 @@ async function saveStreamers(streamers) {
     }
 }
 
-// YouTube配信者データ（youtubers.json）を読み込む関数
+// YouTube配信者データを読み込む
 async function loadYoutubers() {
     try {
         const data = await fs.readFile(YOUTUBERS_FILE, 'utf8');
         return JSON.parse(data);
     } catch (err) {
-        return []; // エラーがあれば空配列を返す
+        return [];
     }
 }
 
-// YouTube配信者データを保存する関数
+// YouTube配信者データを保存
 async function saveYoutubers(youtubers) {
     try {
         await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
@@ -88,7 +88,7 @@ async function saveYoutubers(youtubers) {
     }
 }
 
-// サーバー設定（serverSettings.json）を読み込む関数
+// サーバー設定を読み込む
 async function loadServerSettings() {
     try {
         const data = await fs.readFile(SERVER_SETTINGS_FILE, 'utf8');
@@ -97,11 +97,11 @@ async function loadServerSettings() {
         if (!settings.youtubeStatus) settings.youtubeStatus = {};
         return settings;
     } catch (err) {
-        return { servers: {}, streamStatus: {}, youtubeStatus: {} }; // エラーがあればデフォルト値を返す
+        return { servers: {}, streamStatus: {}, youtubeStatus: {} };
     }
 }
 
-// サーバー設定を保存する関数
+// サーバー設定を保存
 async function saveServerSettings(settings) {
     try {
         await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(settings, null, 2));
@@ -111,7 +111,7 @@ async function saveServerSettings(settings) {
     }
 }
 
-// Twitch APIトークンを取得する関数
+// Twitch APIトークンを取得
 async function getTwitchToken() {
     try {
         const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
@@ -128,7 +128,7 @@ async function getTwitchToken() {
     }
 }
 
-// Discord OAuthでユーザーの接続情報（Twitch/YouTubeアカウント）を取得する関数
+// Discord OAuthで接続情報を取得
 async function getConnections(accessToken) {
     try {
         const response = await axios.get('https://discord.com/api/v10/users/@me/connections', {
@@ -146,7 +146,7 @@ async function getConnections(accessToken) {
     }
 }
 
-// Twitchストリームの状態をチェックする関数
+// Twitchストリームの状態をチェック
 async function checkTwitchStreams() {
     const streamers = await loadStreamers();
     if (!streamers.length) return;
@@ -157,7 +157,7 @@ async function checkTwitchStreams() {
     const settings = await loadServerSettings();
     const currentStatus = {};
 
-    const chunkSize = 100; // レート制限対策で100人ずつリクエスト
+    const chunkSize = 100;
     for (let i = 0; i < streamers.length; i += chunkSize) {
         const chunk = streamers.slice(i, i + chunkSize);
         const query = chunk.map(s => `user_login=${s.username}`).join('&');
@@ -225,7 +225,7 @@ async function checkTwitchStreams() {
     }
 }
 
-// YouTubeライブ配信の状態をチェックする関数
+// YouTubeライブ配信の状態をチェック
 async function checkYouTubeStreams() {
     const youtubers = await loadYoutubers();
     if (!youtubers.length) return;
@@ -288,10 +288,13 @@ async function checkYouTubeStreams() {
     }
 }
 
-// OAuth認証用の簡易サーバーを設定（/link_sコマンド用）
+// OAuth認証用のサーバーを設定
 const app = express();
 app.get('/callback', async (req, res) => {
     if (!req.query.code) return res.send('エラー: コードが提供されていません。');
+
+    const type = req.query.state; // twitch または youtube
+    if (!['twitch', 'youtube'].includes(type)) return res.send('エラー: 無効なリクエストです。');
 
     try {
         // Discord OAuthでアクセストークンを取得
@@ -313,7 +316,8 @@ app.get('/callback', async (req, res) => {
         const discordId = userResponse.data.id;
 
         const settings = await loadServerSettings();
-        if (connections.twitch_username) {
+
+        if (type === 'twitch' && connections.twitch_username) {
             const streamers = await loadStreamers();
             if (!streamers.some(s => s.username === connections.twitch_username)) {
                 streamers.push({ username: connections.twitch_username, discord_id: discordId });
@@ -322,10 +326,11 @@ app.get('/callback', async (req, res) => {
                     const channel = client.channels.cache.get(guildSettings.channelId);
                     if (channel) channel.send(`Twitchアカウントをリンクしました: ${connections.twitch_username}`);
                 }
+                res.send('Twitchアカウントのリンクが完了しました！あなたのTwitch配信を通知できるようになりました♡');
+            } else {
+                res.send('このTwitchアカウントはすでにリンクされています。');
             }
-        }
-
-        if (connections.youtube_channel_id) {
+        } else if (type === 'youtube' && connections.youtube_channel_id) {
             const youtubers = await loadYoutubers();
             if (!youtubers.some(y => y.channel_id === connections.youtube_channel_id)) {
                 youtubers.push({ channel_id: connections.youtube_channel_id, discord_id: discordId });
@@ -334,18 +339,20 @@ app.get('/callback', async (req, res) => {
                     const channel = client.channels.cache.get(guildSettings.channelId);
                     if (channel) channel.send(`YouTubeチャンネルをリンクしました: ${connections.youtube_channel_id}`);
                 }
+                res.send('YouTubeアカウントのリンクが完了しました！あなたのYouTube配信を通知できるようになりました♡');
+            } else {
+                res.send('このYouTubeチャンネルはすでにリンクされています。');
             }
+        } else {
+            res.send(`エラー: ${type === 'twitch' ? 'Twitch' : 'YouTube'}アカウントが接続されていません。Discordの設定でアカウントを接続してください。`);
         }
-
-        // リンク成功時のメッセージ（ブラウザに表示）
-        res.send('あなたの配信を通知できるようになりました♡');
     } catch (err) {
         console.error('OAuthエラー:', err.response?.data || err.message);
         res.send('エラー: 認証に失敗しました。');
     }
 });
 
-// OAuthサーバーをポート3000で起動
+// OAuthサーバーを起動
 app.listen(3000, () => {
     console.log('OAuthサーバーが http://localhost:3000 で起動しました');
     if (REDIRECT_URI.startsWith('http://') && !REDIRECT_URI.includes('localhost')) {
@@ -353,15 +360,18 @@ app.listen(3000, () => {
     }
 });
 
-// ボットがオンラインになったときの処理
+// ボットがオンラインになったとき
 client.on('ready', async () => {
     console.log('ボットがオンラインになりました！');
 
     // スラッシュコマンドを登録
     const commands = [
         new SlashCommandBuilder()
-            .setName('link_s')
-            .setDescription('Twitch/YouTubeアカウントをリンクして配信監視を有効にします'),
+            .setName('link_twitch')
+            .setDescription('Twitchアカウントをリンクして配信監視を有効にします'),
+        new SlashCommandBuilder()
+            .setName('link_youtube')
+            .setDescription('YouTubeアカウントをリンクして配信監視を有効にします'),
         new SlashCommandBuilder()
             .setName('setup_s')
             .setDescription('このサーバーでボットを設定します')
@@ -376,12 +386,12 @@ client.on('ready', async () => {
     ];
     await client.application.commands.set(commands);
 
-    // 定期的にTwitchとYouTubeの配信状態をチェック
-    setInterval(checkTwitchStreams, 60 * 1000); // 1分間隔でTwitchをチェック
-    setInterval(checkYouTubeStreams, 15 * 60 * 1000); // 15分間隔でYouTubeをチェック
+    // 定期的に配信状態をチェック
+    setInterval(checkTwitchStreams, 60 * 1000);
+    setInterval(checkYouTubeStreams, 15 * 60 * 1000);
 });
 
-// ボットが新しいサーバーに追加されたときの処理
+// ボットが新しいサーバーに追加されたとき
 client.on('guildCreate', async guild => {
     try {
         const owner = await guild.fetchOwner();
@@ -391,16 +401,17 @@ client.on('guildCreate', async guild => {
     }
 });
 
-// スラッシュコマンドが実行されたときの処理
+// スラッシュコマンドが実行されたとき
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
-    if (interaction.commandName === 'link_s') {
-        // /link_s コマンド: ユーザーに認証URLを提供
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections`;
-        await interaction.reply(`Twitch/YouTubeアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`);
+    if (interaction.commandName === 'link_twitch') {
+        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=twitch`;
+        await interaction.reply(`Twitchアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`);
+    } else if (interaction.commandName === 'link_youtube') {
+        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=youtube`;
+        await interaction.reply(`YouTubeアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`);
     } else if (interaction.commandName === 'setup_s') {
-        // /setup_s コマンド: サーバー設定（管理者専用）
         if (!interaction.member.permissions.has('ADMINISTRATOR')) {
             return interaction.reply('このコマンドを使用するには管理者権限が必要です。');
         }
@@ -419,8 +430,7 @@ client.on('interactionCreate', async interaction => {
         };
         await saveServerSettings(settings);
 
-        // 設定成功時のメッセージ
-        await interaction.reply(`皆さんの配信通知が行えるようになりました。管理者様に指定されてたテキストチャンネルで/link_sと入力して私に通知させてください！`);
+        await interaction.reply(`皆さんの配信通知が行えるようになりました。管理者様に指定されてたテキストチャンネルで/link_twitch または /link_youtube と入力して私に通知させてください！`);
     }
 });
 
