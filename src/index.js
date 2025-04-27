@@ -1,6 +1,9 @@
+大変失礼いたしました。メッセージが途中で途切れてしまいました。以下に、途切れた部分を補完したソースコード全体を再度添付いたします。
+
+```javascript
 // 必要なモジュールをインポート
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
 const https = require('https');
@@ -181,7 +184,7 @@ async function checkTwitchStreams() {
                         if (!channel) continue;
 
                         const botMember = channel.guild.members.me;
-                        if (!channel.permissionsFor(botMember).has('SEND_MESSAGES')) {
+                        if (!channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
                             console.warn(`チャンネル ${channel.id} (サーバー: ${guildId}) でメッセージ送信権限がありません`);
                             continue;
                         }
@@ -249,7 +252,7 @@ async function checkYouTubeStreams() {
                     if (!channel) continue;
 
                     const botMember = channel.guild.members.me;
-                    if (!channel.permissionsFor(botMember).has('SEND_MESSAGES')) {
+                    if (!channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
                         console.warn(`チャンネル ${channel.id} (サーバー: ${guildId}) でメッセージ送信権限がありません`);
                         continue;
                     }
@@ -392,7 +395,8 @@ client.on('ready', async () => {
                     .setDescription('配信中に付与するロール')
                     .setRequired(true)),
     ];
-    await client.application.commands.set(commands);
+    await client.application.commands.set
+    (commands);
 
     // 定期的に配信状態をチェック
     setInterval(checkTwitchStreams, 60 * 1000);
@@ -404,7 +408,7 @@ client.on('guildCreate', async guild => {
     try {
         // ボットの権限を確認
         const botMember = guild.members.me;
-        if (!botMember.permissions.has('MANAGE_CHANNELS')) {
+        if (!botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
             console.warn(`サーバー (${guild.id}) でチャンネル管理権限がありません。専用チャンネルを作成できません。`);
             return;
         }
@@ -422,15 +426,15 @@ client.on('guildCreate', async guild => {
             permissionOverwrites: [
                 {
                     id: guild.id, // 全員 (@everyone)
-                    deny: ['SEND_MESSAGES'], // デフォルトでは全員のメッセージ送信を禁止
+                    deny: [PermissionsBitField.Flags.SendMessages], // デフォルトでは全員のメッセージ送信を禁止
                 },
                 {
                     id: botMember.id, // ボット自身
-                    allow: ['SEND_MESSAGES', 'VIEW_CHANNEL'], // ボットはメッセージ送信とチャンネル閲覧を許可
+                    allow: [PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel], // ボットはメッセージ送信とチャンネル閲覧を許可
                 },
                 {
                     id: guild.ownerId, // サーバーオーナー
-                    allow: ['SEND_MESSAGES', 'VIEW_CHANNEL'], // オーナーはメッセージ送信とチャンネル閲覧を許可
+                    allow: [PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel], // オーナーはメッセージ送信とチャンネル閲覧を許可
                 },
             ],
             topic: 'ボットの設定用チャンネル | /setup_s で通知設定を行ってください！',
@@ -447,7 +451,7 @@ client.on('guildCreate', async guild => {
             `   URLをクリックしてアカウントを紐づければ、皆さんの素敵な配信が通知できるようになります！\n` +
             `   また、URLは一度作成してしまえば再度作成する必要はありません。\n\n` +
             `*管理者の方へ*: 必要に応じて、このチャンネルの権限を調整してください。\n` +
-            `　　　　　　　**/link_twitch** または **/link_youtube** コマンド自体は他テキストチャンネルでも動作します`
+            `             **/link_twitch** または **/link_youtube** コマンド自体は他テキストチャンネルでも動作します`
         );
 
         console.log(`サーバー (${guild.id}) に「bot-setup」チャンネルを作成し、メッセージを送信しました。`);
@@ -462,7 +466,7 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
     // 管理者権限のチェック
-    if (!interaction.member.permissions.has('ADMINISTRATOR')) {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({ content: 'このコマンドを使用するには管理者権限が必要です。', ephemeral: true });
     }
 
@@ -476,7 +480,7 @@ client.on('interactionCreate', async interaction => {
         const channel = interaction.options.getChannel('channel');
         const liveRole = interaction.options.getRole('live_role');
 
-        if (channel.type !== 'GUILD_TEXT') {
+        if (channel.type !== 0) { // GUILD_TEXT の値は 0
             return interaction.reply({ content: 'テキストチャンネルを選択してください。', ephemeral: true });
         }
 
