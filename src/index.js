@@ -3,7 +3,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
-const https = require('https'); // HTTPSモジュールを追加
+const https = require('https');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -15,7 +15,7 @@ const {
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     YOUTUBE_API_KEY,
-    REDIRECT_URI = 'https://zaronyanbot.com:3000/callback', // HTTPSに変更
+    REDIRECT_URI = 'https://zaronyanbot.com:3000/callback',
 } = process.env;
 
 // 環境変数が設定されているか確認
@@ -294,8 +294,8 @@ const app = express();
 
 // HTTPSサーバーの設定
 const httpsOptions = {
-    cert: require('fs').readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'), // Let's Encryptの証明書
-    key: require('fs').readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'), // Let's Encryptの秘密鍵
+    cert: require('fs').readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
+    key: require('fs').readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
 };
 
 app.get('/callback', async (req, res) => {
@@ -402,10 +402,58 @@ client.on('ready', async () => {
 // ボットが新しいサーバーに追加されたとき
 client.on('guildCreate', async guild => {
     try {
-        const owner = await guild.fetchOwner();
-        await owner.send(`サーバー (${guild.name}) に追加してくれてありがとう！/setup_s コマンドを使って、通知チャンネルとライブロールを設定してください。`);
+        // ボットの権限を確認
+        const botMember = guild.members.me;
+        if (!botMember.permissions.has('MANAGE_CHANNELS')) {
+            console.warn(`サーバー (${guild.id}) でチャンネル管理権限がありません。専用チャンネルを作成できません。`);
+            return;
+        }
+
+        // 既存の「bot-setup」チャンネルが存在するか確認
+        if (guild.channels.cache.some(c => c.name === 'bot-setup')) {
+            console.log(`サーバー (${guild.id}) に「bot-setup」チャンネルが既に存在します。`);
+            return;
+        }
+
+        // 専用テキストチャンネルを作成
+        const setupChannel = await guild.channels.create({
+            name: 'bot-setup',
+            type: 0, // テキストチャンネル (GUILD_TEXT)
+            permissionOverwrites: [
+                {
+                    id: guild.id, // 全員 (@everyone)
+                    deny: ['SEND_MESSAGES'], // デフォルトでは全員のメッセージ送信を禁止
+                },
+                {
+                    id: botMember.id, // ボット自身
+                    allow: ['SEND_MESSAGES', 'VIEW_CHANNEL'], // ボットはメッセージ送信とチャンネル閲覧を許可
+                },
+                {
+                    id: guild.ownerId, // サーバーオーナー
+                    allow: ['SEND_MESSAGES', 'VIEW_CHANNEL'], // オーナーはメッセージ送信とチャンネル閲覧を許可
+                },
+            ],
+            topic: 'ボットの設定用チャンネル | /setup_s で通知設定を行ってください！',
+            reason: 'ボットの設定用チャンネル',
+        });
+
+        // 作成したチャンネルに歓迎メッセージを送信
+        await setupChannel.send(
+            `**${guild.name} へようこそ！** 🎉\n` +
+            `このチャンネルは、ボットの設定専用のチャンネルです。以下の手順でボットを設定してください（管理者向け）：\n\n` +
+            `1. **/setup_s** コマンドで、配信通知を送るチャンネルとライブロールを設定します。\n` +
+            `   例: 通知チャンネルと「Live」ロールを選択。\n` +
+            `2. **/link_twitch** または **/link_youtube** コマンドで、TwitchやYouTubeアカウントをリンクするURLを作成します。\n` +
+            `   URLをクリックしてアカウントを紐づければ、皆さんの素敵な配信が通知できるようになります！\n` +
+            `   また、URLは一度作成してしまえば再度作成する必要はありません。\n\n` +
+            `*管理者の方へ*: 必要に応じて、このチャンネルの権限を調整してください。\n` +
+            `　　　　　　　**/link_twitch** または **/link_youtube** コマンド自体は他テキストチャンネルでも動作します`
+        );
+
+        console.log(`サーバー (${guild.id}) に「bot-setup」チャンネルを作成し、メッセージを送信しました。`);
+
     } catch (err) {
-        console.error(`サーバーオーナーにDM送信失敗 (サーバー: ${guild.id}):`, err.message);
+        console.error(`サーバー (${guild.id}) でのチャンネル作成に失敗:`, err.message);
     }
 });
 
@@ -413,22 +461,23 @@ client.on('guildCreate', async guild => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
+    // 管理者権限のチェック
+    if (!interaction.member.permissions.has('ADMINISTRATOR')) {
+        return interaction.reply({ content: 'このコマンドを使用するには管理者権限が必要です。', ephemeral: true });
+    }
+
     if (interaction.commandName === 'link_twitch') {
         const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=twitch`;
-        await interaction.reply(`Twitchアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`);
+        await interaction.reply({ content: `Twitchアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`, ephemeral: true });
     } else if (interaction.commandName === 'link_youtube') {
         const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=youtube`;
-        await interaction.reply(`YouTubeアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`);
+        await interaction.reply({ content: `YouTubeアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`, ephemeral: true });
     } else if (interaction.commandName === 'setup_s') {
-        if (!interaction.member.permissions.has('ADMINISTRATOR')) {
-            return interaction.reply('このコマンドを使用するには管理者権限が必要です。');
-        }
-
         const channel = interaction.options.getChannel('channel');
         const liveRole = interaction.options.getRole('live_role');
 
         if (channel.type !== 'GUILD_TEXT') {
-            return interaction.reply('テキストチャンネルを選択してください。');
+            return interaction.reply({ content: 'テキストチャンネルを選択してください。', ephemeral: true });
         }
 
         const settings = await loadServerSettings();
@@ -438,7 +487,7 @@ client.on('interactionCreate', async interaction => {
         };
         await saveServerSettings(settings);
 
-        await interaction.reply(`皆さんの配信通知が行えるようになりました。管理者様に指定されてたテキストチャンネルで/link_twitch または /link_youtube と入力して私に通知させてください！`);
+        await interaction.reply({ content: `皆さんの配信通知が行えるようになりました。管理者様に指定されたテキストチャンネルで/link_twitch または /link_youtube と入力して私に通知させてください！`, ephemeral: true });
     }
 });
 
