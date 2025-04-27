@@ -1,6 +1,3 @@
-大変失礼いたしました。メッセージが途中で途切れてしまいました。以下に、途切れた部分を補完したソースコード全体を再度添付いたします。
-
-```javascript
 // 必要なモジュールをインポート
 require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionsBitField } = require('discord.js');
@@ -189,7 +186,7 @@ async function checkTwitchStreams() {
                             continue;
                         }
 
-                        channel.send(`${streamer} is live on Twitch!\nhttps://twitch.tv/${streamer}`);
+                        channel.send(`<span class="math-inline">\{streamer\} is live on Twitch\!\\nhttps\://twitch\.tv/</span>{streamer}`);
 
                         const guild = client.guilds.cache.get(guildId);
                         const member = await guild.members.fetch(streamerInfo.discord_id).catch(() => null);
@@ -238,7 +235,7 @@ async function checkYouTubeStreams() {
     for (const yt of youtubers) {
         try {
             const response = await axios.get(
-                `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${yt.channel_id}&eventType=live&type=video&key=${YOUTUBE_API_KEY}`
+                `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=<span class="math-inline">\{yt\.channel\_id\}&eventType\=live&type\=video&key\=</span>{YOUTUBE_API_KEY}`
             );
             const isLive = response.data.items.length > 0;
             const wasLive = settings.youtubeStatus[yt.channel_id];
@@ -257,7 +254,7 @@ async function checkYouTubeStreams() {
                         continue;
                     }
 
-                    channel.send(`${channelName} is live on YouTube!\nhttps://youtube.com/watch?v=${videoId}`);
+                    channel.send(`<span class="math-inline">\{channelName\} is live on YouTube\!\\nhttps\://youtube\.com/watch?v\=</span>{videoId}`);
 
                     const guild = client.guilds.cache.get(guildId);
                     const member = await guild.members.fetch(yt.discord_id).catch(() => null);
@@ -406,58 +403,30 @@ client.on('ready', async () => {
 // ボットが新しいサーバーに追加されたとき
 client.on('guildCreate', async guild => {
     try {
-        // ボットの権限を確認
-        const botMember = guild.members.me;
-        if (!botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-            console.warn(`サーバー (${guild.id}) でチャンネル管理権限がありません。専用チャンネルを作成できません。`);
+        // サーバーのオーナーのユーザーオブジェクトを取得
+        const owner = await client.users.fetch(guild.ownerId);
+        if (!owner) {
+            console.error(`サーバー (${guild.id}) のオーナーが見つかりませんでした。`);
             return;
         }
 
-        // 既存の「bot-setup」チャンネルが存在するか確認
-        if (guild.channels.cache.some(c => c.name === 'bot-setup')) {
-            console.log(`サーバー (${guild.id}) に「bot-setup」チャンネルが既に存在します。`);
-            return;
-        }
-
-        // 専用テキストチャンネルを作成
-        const setupChannel = await guild.channels.create({
-            name: 'bot-setup',
-            type: 0, // テキストチャンネル (GUILD_TEXT)
-            permissionOverwrites: [
-                {
-                    id: guild.id, // 全員 (@everyone)
-                    deny: [PermissionsBitField.Flags.SendMessages], // デフォルトでは全員のメッセージ送信を禁止
-                },
-                {
-                    id: botMember.id, // ボット自身
-                    allow: [PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel], // ボットはメッセージ送信とチャンネル閲覧を許可
-                },
-                {
-                    id: guild.ownerId, // サーバーオーナー
-                    allow: [PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel], // オーナーはメッセージ送信とチャンネル閲覧を許可
-                },
-            ],
-            topic: 'ボットの設定用チャンネル | /setup_s で通知設定を行ってください！',
-            reason: 'ボットの設定用チャンネル',
-        });
-
-        // 作成したチャンネルに歓迎メッセージを送信
-        await setupChannel.send(
+        // DMで歓迎メッセージと設定手順を送信
+        await owner.send(
             `**${guild.name} へようこそ！** 🎉\n` +
-            `このチャンネルは、ボットの設定専用のチャンネルです。以下の手順でボットを設定してください（管理者向け）：\n\n` +
-            `1. **/setup_s** コマンドで、配信通知を送るチャンネルとライブロールを設定します。\n` +
-            `   例: 通知チャンネルと「Live」ロールを選択。\n` +
-            `2. **/link_twitch** または **/link_youtube** コマンドで、TwitchやYouTubeアカウントをリンクするURLを作成します。\n` +
-            `   URLをクリックしてアカウントを紐づければ、皆さんの素敵な配信が通知できるようになります！\n` +
-            `   また、URLは一度作成してしまえば再度作成する必要はありません。\n\n` +
-            `*管理者の方へ*: 必要に応じて、このチャンネルの権限を調整してください。\n` +
-            `             **/link_twitch** または **/link_youtube** コマンド自体は他テキストチャンネルでも動作します`
+            `このボットをあなたのサーバーに追加していただきありがとうございます。\n\n` +
+            `以下の手順でボットを設定してください:\n\n` +
+            `1. Discord サーバーのテキストチャンネル上にて**/setup_s** コマンドで、配信通知を送るチャンネルとライブロールを設定します。\n` +
+            `   例: Txtchannel**#Bot設定**を作成、**/setup_s**で通知チャンネル(#Bot設定とは分けることを推奨)と「Live」ロールを選択。\n` +
+            `2. サーバーのメンバーに **/link_twitch** または **/link_youtube** コマンドを使用してもらい、TwitchやYouTubeアカウントをリンクしてもらいます。\n` +
+            `   URLをクリックしてアカウントを紐づければ、配信が通知されるようになります。\n\n` +
+            `*注意*: ボットが正常に動作するためには、チャンネルの閲覧、メッセージの送信、ロールの管理権限が必要です。\n` +
+            `         また、配信通知を送信するチャンネルへのメッセージ送信権限も必要です。`
         );
 
-        console.log(`サーバー (${guild.id}) に「bot-setup」チャンネルを作成し、メッセージを送信しました。`);
+        console.log(`サーバー (${guild.id}) のオーナーに設定手順をDMで送信しました。`);
 
     } catch (err) {
-        console.error(`サーバー (${guild.id}) でのチャンネル作成に失敗:`, err.message);
+        console.error(`サーバー (${guild.id}) のオーナーへのDM送信に失敗:`, err.message);
     }
 });
 
@@ -491,7 +460,8 @@ client.on('interactionCreate', async interaction => {
         };
         await saveServerSettings(settings);
 
-        await interaction.reply({ content: `皆さんの配信通知が行えるようになりました。管理者様に指定されたテキストチャンネルで/link_twitch または /link_youtube と入力して私に通知させてください！`, ephemeral: true });
+        await interaction.reply({ content: `皆さんの配信通知が行えるようになりました。\n` +
+                                           `管理者様に作成して頂いたURLからあなたを登録してください！`, ephemeral: true });
     }
 });
 
