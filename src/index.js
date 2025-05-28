@@ -54,13 +54,13 @@ for (const envVar of requiredEnvVars) {
 }
 
 // ファイルパス
-const CONFIG_FILE = path.join(__dirname, 'config.json');
-const STREAMERS_FILE = path.join(__dirname, 'data/streamers.json');
-const YOUTUBERS_FILE = path.join(__dirname, 'data/youtubers.json');
-const TWITCASTERS_FILE = path.join(__dirname, 'data/twitcasters.json');
-const SERVER_SETTINGS_FILE = path.join(__dirname, 'data/serverSettings.json');
-const ADMINS_FILE = path.join(__dirname, 'data/admins.json');
-const MAZAKARI_FILE = path.join(__dirname, 'data/mazakari.json');
+const CONFIG_FILE = path.join(__dirname, '../config.json');
+const STREAMERS_FILE = path.join(__dirname, '../data/streamers.json');
+const YOUTUBERS_FILE = path.join(__dirname, '../data/youtubers.json');
+const TWITCASTERS_FILE = path.join(__dirname, '../data/twitcasters.json');
+const SERVER_SETTINGS_FILE = path.join(__dirname, '../data/serverSettings.json');
+const ADMINS_FILE = path.join(__dirname, '../data/admins.json');
+const MAZAKARI_FILE = path.join(__dirname, '../data/mazakari.json');
 
 // キャッシュ
 let configCache = null;
