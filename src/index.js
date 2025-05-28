@@ -941,7 +941,11 @@ client.on('guildMemberAdd', async member => {
 // ボット起動時の処理
 client.on('ready', async () => {
   console.log('✅ ボットがオンラインになりました！');
-
+  // ステータスを設定
+  client.user.setPresence({
+    activities: [{ name: '配信を監視中', type: 'WATCHING' }],
+    status: 'online',
+  });
   const commands = [
     new SlashCommandBuilder()
       .setName('link_twitch')
