@@ -1049,13 +1049,13 @@ client.on('guildCreate', async guild => {
       `**${guild.name} へようこそ！** 🎉\n` +
         `このボットをあなたのサーバーに追加していただきありがとうございます。\n\n` +
         `以下の手順でボットを設定してください:\n\n` +
-        `1. /setup_s コマンドで、配信通知を送るチャンネルとライブロールを設定します。\n\n` +
-        `2. /set_notification_roles コマンドで、通知設定ボタンで付与するロールを設定します。\n\n` +
-        `3. /set_keywords コマンドで、通知する配信タイトルのキーワードを設定します（例: 「ゲーム、ライブ」）。\n\n` +
-        `4. サーバーのメンバーに /link_twitch、/link_youtube、/link_twitcasting コマンドを使用して、配信アカウントをリンクさせます。\n\n` +
-        `5. /mazakari コマンドで、メンバー全員に配信通知設定の案内を送信します。\n\n` +
-        `6. /stop_mazakari コマンドで、Mazakari機能を停止します。\n\n` +
-        `*注意*: ボットが正常に動作するためには、チャンネルの閲覧、メッセージの送信、ロールの管理、チャンネル管理の権限が必要です。`)
+        `1. /setup_s コマンドで、配信通知を送るチャンネルとライブロールを設定します。\n` +
+        `2. /set_notification_roles コマンドで、通知設定ボタンで付与するロールを設定します。\n` +
+        `3. /set_keywords コマンドで、通知する配信タイトルのキーワードを設定します（例: "ゲーム,ライブ"）。\n` +
+        `4. サーバーのメンバーに /link_twitch, /link_youtube, /link_twitcasting コマンドを使用してもらい、配信アカウントをリンクしてもらいます。\n` +
+        `5. /mazakari コマンドで、メンバー全員に配信通知設定の案内を送信できます。\n` +
+        `6. /stop_mazakari コマンドで、Mazakari機能を停止できます。\n\n` +
+        `*注意*: ボットが正常に動作するためには、チャンネルの閲覧、メッセージの送信、ロールの管理、チャンネル管理権限が必要です。`
     );
   } catch (err) {
     console.error(`サーバー(${guild.id})のオーナーへのDM送信に失敗:`, err.message);
@@ -1075,33 +1075,33 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'link_twitch') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: 'このコマンドを実行するには管理者権限が必要です。',
+          content: 'このコマンドを使用するには管理者権限が必要です。',
           ephemeral: true,
         });
       }
       const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
+        DISCORD_CLIENT_ID
       )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
+        REDIRECT_URI
       )}&response_type=code&scope=identify%20connections&state=twitch`;
       await interaction.reply({
-        content: `Twitchアカウントをリンクするためには以下のURLで認証してください:\n${oauthUrl}`,
+        content: `Twitchアカウントをリンクするには以下のURLで認証してください:\n${oauthUrl}`,
         ephemeral: true,
       });
     } else if (interaction.commandName === 'link_youtube') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: 'このコマンドを実行するには管理者権限が必要です。',
+          content: 'このコマンドを使用するには管理者権限が必要です。',
           ephemeral: true,
         });
       }
       const config = await loadConfig();
-      const youtubeAccountLimit = config.youtubeAccountLimit || 25;
+      const youtubeAccountLimit = config.youtubeAccountLimit || 0;
       const youtubers = await loadYoutubers();
 
-      if (youtubeAccountLimit && youtubers.length >= youtubeAccountLimit) {
+      if (youtubeAccountLimit > 0 && youtubers.length >= youtubeAccountLimit) {
         await interaction.reply({
-          content: `現在YouTube配信通知はAPIの関係上${youtubeAccountLimit}人の制限が設けられています。正式リリースをお待ちください。`,
+          content: `現在YouTube配信通知はAPIの関係上${youtubeAccountLimit}人の制限が設けてあります。正式リリースをお待ちください。`,
           ephemeral: true,
         });
         return;
@@ -1119,7 +1119,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'link_twitcasting') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: 'このコマンドを実行するには管理者権限が必要です。',
+          content: 'このコマンドを使用するには管理者権限が必要です。',
           ephemeral: true,
         });
       }
@@ -1129,7 +1129,7 @@ client.on('interactionCreate', async interaction => {
 
       if (twitcastingAccountLimit > 0 && twitcasters.length >= twitcastingAccountLimit) {
         await interaction.reply({
-          content: `現在ツイキャス配信通知は${twitcastingAccountLimit}人の制限が設けられています。`,
+          content: `現在ツイキャス配信通知は${twitcastingAccountLimit}人の制限が設けてあります。`,
           ephemeral: true,
         });
         return;
@@ -1147,7 +1147,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'setup_s') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: 'このコマンドを実行するには管理者権限が必要です。',
+          content: 'このコマンドを使用するには管理者権限が必要です。',
           ephemeral: true,
         });
       }
@@ -1174,7 +1174,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'set_notification_roles') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: 'このコマンドを実行するには管理者権限が必要です。',
+          content: 'このコマンドを使用するには管理者権限が必要です。',
           ephemeral: true,
         });
       }
@@ -1200,7 +1200,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'admin_message') {
       if (!isAdmin) {
         return interaction.reply({
-          content: 'このコマンドは管理者のみ使用可能です。',
+          content: 'このコマンドは管理者のみ使用できます。',
           ephemeral: true,
         });
       }
@@ -1219,8 +1219,8 @@ client.on('interactionCreate', async interaction => {
       const messageInput = new TextInputBuilder()
         .setCustomId('message')
         .setLabel('送信するメッセージ')
-        .setStyle(TextInputStyle.TextInputStyle.Paragraph)
-        .setPlaceholder('サーバー管理者者に送信するメッセージを入力')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('サーバー管理者に送信するメッセージを入力')
         .setRequired(true);
 
       const passwordRow = new ActionRowBuilder().addComponents(passwordInput);
@@ -1229,9 +1229,9 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.showModal(modal);
     } else if (interaction.commandName === 'reload_config') {
-      if (!isAdmin)) {
+      if (!isAdmin) {
         return interaction.reply({
-          content: 'このコマンドは管理者のみ使用可能です。',
+          content: 'このコマンドは管理者のみが使用できます。',
           ephemeral: true,
         });
       }
@@ -1239,10 +1239,11 @@ client.on('interactionCreate', async interaction => {
       try {
         const config = await loadConfig(true);
         await interaction.reply({
-          content: `設定を再読み込みしました。YouTube制限: ${config.youtubeAccountLimit || 'なし'},
-            ツイキャス制限: ${config.twitcastingAccountLimit || 'なし'}`,
-            ephemeral: true,
-          });
+          content: `設定を再読み込みしました。YouTube制限: ${
+            config.youtubeAccountLimit || 'なし'
+          }, ツイキャス制限: ${config.twitcastingAccountLimit || 'なし'}`,
+          ephemeral: true,
+        });
       } catch (err) {
         console.error('設定再読み込みエラー:', err.message);
         await interaction.reply({
@@ -1253,9 +1254,9 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'admin') {
       if (interaction.user.id !== BOT_CREATOR_ID) {
         return interaction.reply({
-          content: 'このコマンドはボット製作者のみが使用可能です。',
+          content: 'このコマンドはボット製作者のみが使用できます。',
           ephemeral: true,
-          });
+        });
       }
 
       const user = interaction.options.getUser('user');
@@ -1269,18 +1270,17 @@ client.on('interactionCreate', async interaction => {
         });
       } else {
         await interaction.reply({
-          content: `${user.tag} はすでに管理者です。`,
+          content: `${user.tag} は既に管理者です。`,
           ephemeral: true,
         });
       }
     } else if (interaction.commandName === 'mazakari') {
       if (!isAdmin) {
         return interaction.reply({
-          content: 'このコマンドは管理者のみ使用できます。',
+          content: 'このコマンドは管理者のみが使用できます。',
           ephemeral: true,
-          });
+        });
       }
-    }
 
       const message = interaction.options.getString('message');
       const guild = interaction.guild;
@@ -1355,7 +1355,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'stop_mazakari') {
       if (!isAdmin) {
         return interaction.reply({
-          content: 'このコマンドは管理者のみ使用可能です。',
+          content: 'このコマンドは管理者のみが使用できます。',
           ephemeral: true,
         });
       }
@@ -1379,7 +1379,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'clear_streams') {
       if (!isAdmin) {
         return interaction.reply({
-          content: 'このコマンドは管理者のみ使用可能です。',
+          content: 'このコマンドは管理者のみが使用できます。',
           ephemeral: true,
         });
       }
@@ -1413,7 +1413,7 @@ client.on('interactionCreate', async interaction => {
     } else if (interaction.commandName === 'set_keywords') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: 'このコマンドを実行するには管理者権限が必要です。',
+          content: 'このコマンドを使用するには管理者権限が必要です。',
           ephemeral: true,
         });
       }
@@ -1437,7 +1437,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isModalSubmit() && interaction.customId === 'admin_message_modal') {
     if (!isAdmin) {
       return interaction.reply({
-        content: 'この操作は管理者のみ実行可能です。',
+        content: 'この操作は管理者のみ実行できます。',
         ephemeral: true,
       });
     }
@@ -1452,38 +1452,38 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    const settings = JSON.parse(fs.readFileSync(SERVER_SETTINGS_FILE, 'utf8'));
+    const settings = await loadServerSettings();
     const serverIds = Object.keys(settings.servers);
 
     let successCount = 0;
-    let failedCount = 0;
+    let failCount = 0;
 
-    for (const serverId of serverIds) {
+    for (const guildId of serverIds) {
       try {
-        const guild = await client.guilds.cache.get(serverId);
+        const guild = client.guilds.cache.get(guildId);
         if (!guild) {
-          failedCount++;
+          failCount++;
           continue;
         }
 
         const owner = await client.users.fetch(guild.ownerId);
         if (!owner) {
-          failedCount++;
+          failCount++;
           continue;
         }
 
         await owner.send({
-          content: `**管理者メッセージ**: ${message}\n\n*送信者*: ボット製作者 (${interaction.user.tag})`),
+          content: `**管理者メッセージ**:\n${message}\n\n*送信者*: ボット製作者 (${interaction.user.tag})`,
         });
         successCount++;
       } catch (err) {
-        console.error(`サーバー ${serverId}のオーナーへのDM送信に失敗しました: ${err.message}`);
-        failedCount++;
+        console.error(`サーバー ${guildId} のオーナーへのDM送信に失敗:`, err.message);
+        failCount++;
       }
     }
 
     await interaction.reply({
-      content: `メッセージ送信を試みました。\n成功: ${successCount} サーバー\n失敗: ${failedCount} サーバー`,
+      content: `メッセージ送信を試みました。\n成功: ${successCount} サーバー\n失敗: ${failCount} サーバー`,
       ephemeral: true,
     });
   }
@@ -1493,25 +1493,25 @@ client.on('interactionCreate', async interaction => {
       twitch_notification: {
         id: 'twitch',
         url: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID,
+          DISCORD_CLIENT_ID
         )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI,
+          REDIRECT_URI
         )}&response_type=code&scope=identify%20connections&state=twitch`,
       },
       youtube_notification: {
         id: 'youtube',
         url: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID,
+          DISCORD_CLIENT_ID
         )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI,
-        )}&response_type=code&state=youtube`,
+          REDIRECT_URI
+        )}&response_type=code&scope=identify%20connections&state=youtube`,
       },
       twitcasting_notification: {
         id: 'twitcasting',
         url: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID,
+          DISCORD_CLIENT_ID
         )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI,
+          REDIRECT_URI
         )}&response_type=code&scope=identify%20connections&state=twitcasting`,
       },
     };
@@ -1519,8 +1519,7 @@ client.on('interactionCreate', async interaction => {
     const oauthUrl = oauthUrls[interaction.customId];
     if (oauthUrl) {
       await interaction.reply({
-        content: `以下のURLで${oauthUrl.id
-          .toUpperCase()}のアカウントをリンクしてください:\n\n${oauthUrl.url}`,
+        content: `以下のURLで${oauthUrl.id.toUpperCase()}アカウントをリンクしてください:\n${oauthUrl.url}`,
         ephemeral: true,
       });
 
@@ -1530,29 +1529,31 @@ client.on('interactionCreate', async interaction => {
       if (guildSettings && guildSettings.notificationRoles) {
         const roleId = guildSettings.notificationRoles[oauthUrl.id];
         if (roleId) {
-          const role = await interaction.guild.roles.cache.get(roleId);
-          if (!roleId || role.position < interaction.guild.members.me.roles.highest.position) {
-            console.warn(`サーバー ${guildId} でロール ${roleId} を管理できません`);
-            return;
-          }
-          await interaction.member.roles.add(roleId).catch(err => {
-            console.error(
-              `ロール付与エラー (${interaction.member.id}, ${roleId}):`,
-              err.message,
+          const role = interaction.guild.roles.cache.get(roleId);
+          if (role && role.position < interaction.guild.members.me.roles.highest.position) {
+            await interaction.member.roles.add(role).catch(err => {
+              console.error(
+                `ロール付与エラー (${interaction.member.id}, ${roleId}):`,
+                err.message
+              );
+            });
+          } else {
+            console.warn(
+              `サーバー ${interaction.guild.id} でロール ${roleId} を管理できません`
             );
-          });
+          }
         }
-        }
+      }
 
       // プライベートチャンネル削除
       if (interaction.message.channelId) {
-        const channel = await client.channels.fetch(
-          interaction.message.channelId,
-        ).catch(() => null);
+        const channel = await client.channels
+          .fetch(interaction.message.channelId)
+          .catch(() => null);
         if (channel) {
-          await channel.delete().catch(() => {
-            console.error(`チャンネル ${channel.id} の削除に失敗しました。`);
-          });
+          await channel.delete().catch(err =>
+            console.error(`チャンネル ${channel.id} の削除に失敗:`, err.message)
+          );
         }
       }
     }
