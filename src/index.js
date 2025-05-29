@@ -1185,6 +1185,7 @@ client.on('interactionCreate', async interaction => {
         ephemeral: true,
       });
     } else if (interaction.commandName === 'setup_s') {
+      try {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
           content: 'このコマンドを使用するには管理者権限が必要です。',
@@ -1211,6 +1212,14 @@ client.on('interactionCreate', async interaction => {
       await saveServerSettings(settings);
 
       await interaction.reply({ content: '配信通知を設定しました。', ephemeral: true });
+      console.log('setup_s 正常終了');
+      } catch (err) {
+    console.error('setup_s コマンド中にエラー:', err);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: 'エラーが発生しました。', ephemeral: true });
+         }
+        }
+      }
     } else if (interaction.commandName === 'set_notification_roles') {
       if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
