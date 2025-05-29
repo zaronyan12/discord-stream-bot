@@ -424,7 +424,7 @@ async function checkTwitchStreams() {
             if (
               keywords.length &&
               !keywords.some(keyword =>
-                streamTitle.toLowerCase().includes(keyword.toLowerCase()),
+                (typeof streamTitle === 'string' && streamTitle.toLowerCase().includes(keyword.toLowerCase())),
               )
             ) {
               continue;
@@ -538,7 +538,7 @@ async function checkYouTubeStreams() {
               if (
                 keywords.length &&
                 !keywords.some(keyword =>
-                  streamTitle.toLowerCase().includes(keyword.toLowerCase()),
+                  (typeof streamTitle === 'string' && streamTitle.toLowerCase().includes(keyword.toLowerCase())),
                 )
               ) {
                 continue;
@@ -649,7 +649,7 @@ async function checkTwitCastingStreams() {
           if (
             keywords.length &&
             !keywords.some(keyword =>
-              streamTitle.toLowerCase().includes(keyword.toLowerCase()),
+              (typeof streamTitle === 'string' && streamTitle.toLowerCase().includes(keyword.toLowerCase())),
             )
           ) {
             continue;
