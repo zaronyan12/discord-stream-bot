@@ -1241,7 +1241,7 @@ client.on('interactionCreate', async interaction => {
         )}&response_type=code&scope=identify%20connections&state=twitch`;
         await interaction.reply({
           content: `Twitchアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'link_youtube') {
         const config = await loadConfig();
@@ -1251,7 +1251,7 @@ client.on('interactionCreate', async interaction => {
         if (youtubeAccountLimit > 0 && youtubers.length >= youtubeAccountLimit) {
           await interaction.reply({
             content: `現在YouTube配信通知はAPIの関係で${youtubeAccountLimit}人の制限があります。正式リリースをお待ちください。`,
-            ephemeral: true,
+            ephemeral: false,
           });
           return;
         }
@@ -1263,7 +1263,7 @@ client.on('interactionCreate', async interaction => {
         )}&response_type=code&scope=identify%20connections&state=youtube`;
         await interaction.reply({
           content: `YouTubeアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'link_twitcasting') {
         const config = await loadConfig();
@@ -1273,7 +1273,7 @@ client.on('interactionCreate', async interaction => {
         if (twitcastingAccountLimit > 0 && twitcasters.length >= twitcastingAccountLimit) {
           await interaction.reply({
             content: `現在ツイキャス配信通知には${twitcastingAccountLimit}人の制限があります。`,
-            ephemeral: true,
+            ephemeral: false,
           });
           return;
         }
@@ -1285,7 +1285,7 @@ client.on('interactionCreate', async interaction => {
         )}&response_type=code&scope=twitcasting&state=twitcasting`;
         await interaction.reply({
           content: `ツイキャスアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'setup_s') {
         console.log('setup_s コマンド実行:', {
