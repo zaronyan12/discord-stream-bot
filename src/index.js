@@ -651,15 +651,15 @@ client.on('interactionCreate', async interaction => {
         const members = await guild.members.fetch();
         const buttons = [
           new ButtonBuilder()
-            .setCustomId('twitch_notification')
+            .setCustomId(`twitch_notification_${guild.id}`)
             .setLabel('Twitch通知')
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
-            .setCustomId('youtube_notification')
+            .setCustomId(`youtube_notification_${guild.id}`)
             .setLabel('YouTube通知')
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
-            .setCustomId('twitcasting_notification')
+            .setCustomId(`twitcasting_notification_${guild.id}`)
             .setLabel('TwitCasting通知')
             .setStyle(ButtonStyle.Primary),
         ];
@@ -834,7 +834,29 @@ client.on('interactionCreate', async interaction => {
           ephemeral: true,
         });
       }
+    
     } else if (interaction.isButton()) {
+      const [type, guildId] = interaction.customId.split('_notification_');
+      const oauthUrls = {
+        twitch: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=twitch`,
+        youtube: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=youtube`,
+        twitcasting: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=twitcasting`,
+      };
+      const oauthUrl = oauthUrls[type];
+      if (!oauthUrl) return;
+      await interaction.reply({ content: `以下のリンクで${type.toUpperCase()}アカウントをリンクしてください:\n${oauthUrl}`, ephemeral: true });
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) return;
+      const settings = await loadServerSettings();
+      const guildSettings = settings.servers[guildId];
+      const roleId = guildSettings?.notificationRoles?.[type];
+      if (!roleId) return;
+      const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+      const role = await guild.roles.fetch(roleId).catch(() => null);
+      if (role && member && role.position < guild.members.me.roles.highest.position) {
+        await member.roles.add(roleId).catch(err => console.error(`ロール付与エラー (${member.id}, ${roleId}):`, err.message));
+      }
+     else if (interaction.isButton()) {
       const oauthUrls = {
         twitch_notification: {
           id: 'twitch',
