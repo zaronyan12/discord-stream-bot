@@ -879,17 +879,32 @@ client.on('interactionCreate', async interaction => {
         let youtubers = await loadYoutubers();
         let twitcasters = await loadTwitcasters();
 
+        // 除外ユーザーを除いて全データをフィルタリング
         streamers = streamers.filter(s => exclude.includes(s.discordId));
         youtubers = youtubers.filter(y => exclude.includes(y.discordId));
         twitcasters = twitcasters.filter(t => exclude.includes(t.discordId));
 
-        await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-        await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-        await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
-        await interaction.reply({
-          content: `配信設定を削除しました。除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
-          ephemeral: true,
-        });
+        try {
+          // ファイルに保存
+          await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+          await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+          await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+
+          await interaction.reply({
+            content: `配信設定を削除しました。\n` +
+                     `- Twitch: ${streamers.length}件残存\n` +
+                     `- YouTube: ${youtubers.length}件残存\n` +
+                     `- TwitCasting: ${twitcasters.length}件残存\n` +
+                     `除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
+            ephemeral: true,
+          });
+        } catch (err) {
+          console.error('ファイル保存エラー:', err.message);
+          await interaction.reply({
+            content: '配信設定の削除中にエラーが発生しました。管理者に連絡してください。',
+            ephemeral: true,
+          });
+        }
       } else if (interaction.commandName === 'set_keywords') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
           return interaction.reply({
