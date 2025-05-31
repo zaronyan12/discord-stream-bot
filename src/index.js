@@ -551,7 +551,7 @@ client.on('messageCreate', async message => {
     if (messageContent.length > 2000) {
       await message.reply({
         content: 'ファイルの内容が2000文字を超えています。短くしてください。',
-        ephemeral: true,
+        ephemeral: ,
       });
       pendingMazakari.delete(message.author.id);
       return;
