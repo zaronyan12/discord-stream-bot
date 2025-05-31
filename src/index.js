@@ -956,7 +956,6 @@ else if (interaction.isButton()) {
           });
         }
       }
-    }
   } catch (err) {
     console.error('インタラクション処理エラー:', {
       command: interaction.commandName || interaction.customId,
