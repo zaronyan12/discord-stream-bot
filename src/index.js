@@ -984,7 +984,7 @@ async function handleNotificationButton(interaction, client) {
     let [type, guildId] = interaction.customId.split('_notification_');
 
     const settings = await loadServerSettings();
-    const guild = client.guilds.cache.get(guidId);
+    const guild = client.guilds.cache.get(guildId);
 
     if (!guild) {
       return interaction.reply({
