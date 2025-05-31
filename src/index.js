@@ -723,7 +723,7 @@ client.on('interactionCreate', async interaction => {
           content: `メッセージ送信を試みました。\n成功: ${successCount} メンバー\nDM失敗（チャンネル作成）: ${failCount} メンバー`,
           flags: InteractionResponseFlags.Ephemeral,
         });
-      } else признатися if (interaction.commandName === 'stop_mazakari') {
+      } else if (interaction.commandName === 'stop_mazakari') {
         if (!creators.creators.includes(interaction.user.id)) {
           return interaction.reply({
             content: 'このコマンドはボット製作者のみ使用可能です。',
