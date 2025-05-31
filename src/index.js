@@ -250,7 +250,7 @@ async function getTwitchAccessToken() {
   }
 }
 
-// YouTubeライブ配信のチェック（クォータ最適化）
+// YouTubeライブ配信のチェック（エラーハンドリング強化）
 async function checkYouTubeStreams() {
   const youtubers = await loadYoutubers();
   const serverSettings = await loadServerSettings();
@@ -307,7 +307,15 @@ async function checkYouTubeStreams() {
         activeStreams.youtube.delete(youtuber.youtubeId);
       }
     } catch (err) {
-      console.error(`YouTube APIエラー (${youtuber.youtubeUsername}):`, err.message);
+      console.error(`YouTube APIエラー (${youtuber.youtubeUsername}, ${youtuber.youtubeId}):`, {
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+        config: {
+          url: err.config?.url,
+          params: err.config?.params,
+        },
+      });
     }
   }
 }
@@ -714,8 +722,6 @@ client.once('ready', async () => {
   setInterval(checkYouTubeStreams, 5 * 60 * 1000); // YouTube: 5分間隔
   setInterval(checkTwitchStreams, 60 * 1000); // Twitch: 1分間隔
   setInterval(checkTwitCastingStreams, 5 * 60 * 1000); // ツイキャス: 5分間隔
-  // ツイキャスを1分間隔に変更する場合: setInterval(checkTwitCastingStreams, 60 * 1000);
-
   // 初回チェックを即時実行
   checkYouTubeStreams().catch(err => console.error('初回YouTubeチェックエラー:', err.message));
   checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err.message));
@@ -1403,7 +1409,7 @@ client.on('interactionCreate', async interaction => {
         return null;
       });
       const role = await guild.roles.fetch(roleId).catch(err => {
-        console.error(`ロール取得エラー (${roleId}):`, err.message);
+        console.error(`ロール獲得エラー (${roleId}):`, err.message);
         return null;
       });
 
