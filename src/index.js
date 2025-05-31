@@ -43,6 +43,13 @@ let creatorsCache = null;
 // /mazakariのファイル待ち状態
 const pendingMazakari = new Map(); // userId -> { guildId, channelId, timestamp }
 
+// 配信中の状態を追跡するキャッシュ（重複通知防止用）
+const activeStreams = {
+  twitch: new Map(), // twitchId -> { streamId, title, notifiedAt }
+  youtube: new Map(), // youtubeId -> { videoId, title, notifiedAt }
+  twitcasting: new Map(), // twitcastingId -> { liveId, title, notifiedAt }
+};
+
 // Discordクライアント
 const client = new Client({
   intents: [
@@ -223,6 +230,189 @@ async function saveCreators(creators) {
   } catch (err) {
     console.error('製作者リスト保存エラー:', err.message);
     throw err;
+  }
+}
+
+// Twitchアクセストークンの取得
+async function getTwitchAccessToken() {
+  try {
+    const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+      params: {
+        client_id: TWITCH_CLIENT_ID,
+        client_secret: TWITCH_CLIENT_SECRET,
+        grant_type: 'client_credentials',
+      },
+    });
+    return response.data.access_token;
+  } catch (err) {
+    console.error('Twitchアクセストークン取得エラー:', err.message);
+    throw err;
+  }
+}
+
+// YouTubeライブ配信のチェック（クォータ最適化）
+async function checkYouTubeStreams() {
+  const youtubers = await loadYoutubers();
+  const serverSettings = await loadServerSettings();
+  for (const youtuber of youtubers) {
+    try {
+      console.log(`YouTubeチャンネル状態チェック: ${youtuber.youtubeUsername} (${youtuber.youtubeId})`);
+      // まずchannelsエンドポイントでライブ状態をチェック（1クォータ）
+      const channelResponse = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+        params: {
+          part: 'status,liveStreamingDetails',
+          id: youtuber.youtubeId,
+          key: YOUTUBE_API_KEY,
+        },
+      });
+      const channel = channelResponse.data.items?.[0];
+      const isLive = channel?.liveStreamingDetails?.activeLiveStream;
+      const cachedStream = activeStreams.youtube.get(youtuber.youtubeId);
+
+      if (isLive && !cachedStream) {
+        // ライブ配信が開始された場合、詳細を取得（100クォータ）
+        console.log(`ライブ配信検出: ${youtuber.youtubeUsername}, 詳細を取得`);
+        const searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+          params: {
+            part: 'id,snippet',
+            channelId: youtuber.youtubeId,
+            eventType: 'live',
+            type: 'video',
+            key: YOUTUBE_API_KEY,
+          },
+        });
+        const currentStream = searchResponse.data.items.length > 0 ? searchResponse.data.items[0] : null;
+        if (currentStream) {
+          const videoId = currentStream.id.videoId;
+          const title = currentStream.snippet.title;
+          for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
+            if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
+            if (settings.keywords && settings.keywords.length > 0) {
+              if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
+                console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
+                continue;
+              }
+            }
+            const channel = client.channels.cache.get(settings.channelId);
+            if (channel) {
+              await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
+              console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
+            }
+          }
+          activeStreams.youtube.set(youtuber.youtubeId, { videoId, title, notifiedAt: Date.now() });
+        }
+      } else if (!isLive && cachedStream) {
+        // ライブ配信が終了した場合
+        console.log(`ライブ配信終了: ${youtuber.youtubeUsername}`);
+        activeStreams.youtube.delete(youtuber.youtubeId);
+      }
+    } catch (err) {
+      console.error(`YouTube APIエラー (${youtuber.youtubeUsername}):`, err.message);
+    }
+  }
+}
+
+// Twitchライブ配信のチェック（1分間隔）
+async function checkTwitchStreams() {
+  const streamers = await loadStreamers();
+  const serverSettings = await loadServerSettings();
+  let accessToken;
+  try {
+    accessToken = await getTwitchAccessToken();
+  } catch (err) {
+    console.error('Twitchアクセストークン取得失敗、チェックをスキップ');
+    return;
+  }
+  for (const streamer of streamers) {
+    try {
+      console.log(`Twitch配信チェック: ${streamer.twitchUsername} (${streamer.twitchId})`);
+      const response = await axios.get('https://api.twitch.tv/helix/streams', {
+        params: { user_id: streamer.twitchId },
+        headers: {
+          'Client-ID': TWITCH_CLIENT_ID,
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      const currentStream = response.data.data.length > 0 ? response.data.data[0] : null;
+      const cachedStream = activeStreams.twitch.get(streamer.twitchId);
+
+      if (currentStream) {
+        const streamId = currentStream.id;
+        const title = currentStream.title;
+        if (!cachedStream || cachedStream.streamId !== streamId) {
+          // 新しいライブ配信を検出
+          for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
+            if (!settings.channelId || !settings.notificationRoles?.twitch) continue;
+            if (settings.keywords && settings.keywords.length > 0) {
+              if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
+                console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
+                continue;
+              }
+            }
+            const channel = client.channels.cache.get(settings.channelId);
+            if (channel) {
+              await channel.send(`🔴 ${streamer.twitchUsername} がTwitchでライブ配信中！\nタイトル: ${title}\nhttps://www.twitch.tv/${streamer.twitchUsername}`);
+              console.log(`Twitch通知送信: ${streamer.twitchUsername}, サーバー=${guildId}`);
+            }
+          }
+          activeStreams.twitch.set(streamer.twitchId, { streamId, title, notifiedAt: Date.now() });
+        }
+      } else if (cachedStream) {
+        // ライブ終了
+        console.log(`ライブ配信終了: ${streamer.twitchUsername}`);
+        activeStreams.twitch.delete(streamer.twitchId);
+      }
+    } catch (err) {
+      console.error(`Twitch APIエラー (${streamer.twitchUsername}):`, err.message);
+    }
+  }
+}
+
+// ツイキャスライブ配信のチェック
+async function checkTwitCastingStreams() {
+  const twitcasters = await loadTwitcasters();
+  const serverSettings = await loadServerSettings();
+  for (const twitcaster of twitcasters) {
+    try {
+      console.log(`ツイキャス配信チェック: ${twitcaster.twitcastingUsername} (${twitcaster.twitcastingId})`);
+      const response = await axios.get(`https://apiv2.twitcasting.tv/users/${twitcaster.twitcastingId}/current_live`, {
+        headers: {
+          'Client-ID': TWITCASTING_CLIENT_ID,
+          'Client-Secret': TWITCASTING_CLIENT_SECRET,
+        },
+      });
+      const currentStream = response.data.live;
+      const cachedStream = activeStreams.twitcasting.get(twitcaster.twitcastingId);
+
+      if (currentStream) {
+        const liveId = currentStream.id;
+        const title = currentStream.title;
+        if (!cachedStream || cachedStream.liveId !== liveId) {
+          // 新しいライブ配信を検出
+          for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
+            if (!settings.channelId || !settings.notificationRoles?.twitcasting) continue;
+            if (settings.keywords && settings.keywords.length > 0) {
+              if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
+                console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
+                continue;
+              }
+            }
+            const channel = client.channels.cache.get(settings.channelId);
+            if (channel) {
+              await channel.send(`📡 ${twitcaster.twitcastingUsername} がツイキャスでライブ配信中！\nタイトル: ${title}\nhttps://twitcasting.tv/${twitcaster.twitcastingId}`);
+              console.log(`ツイキャス通知送信: ${twitcaster.twitcastingUsername}, サーバー=${guildId}`);
+            }
+          }
+          activeStreams.twitcasting.set(twitcaster.twitcastingId, { liveId, title, notifiedAt: Date.now() });
+        }
+      } else if (cachedStream) {
+        // ライブ終了
+        console.log(`ライブ配信終了: ${twitcaster.twitcastingUsername}`);
+        activeStreams.twitcasting.delete(twitcaster.twitcastingId);
+      }
+    } catch (err) {
+      console.error(`ツイキャスAPIエラー (${twitcaster.twitcastingUsername}):`, err.message);
+    }
   }
 }
 
@@ -518,6 +708,18 @@ client.once('ready', async () => {
   } catch (err) {
     console.error('サーバー起動エラー:', err.message);
   }
+
+  // ポーリングの開始
+  console.log('ライブ配信ポーリングを開始します');
+  setInterval(checkYouTubeStreams, 5 * 60 * 1000); // YouTube: 5分間隔
+  setInterval(checkTwitchStreams, 60 * 1000); // Twitch: 1分間隔
+  setInterval(checkTwitCastingStreams, 5 * 60 * 1000); // ツイキャス: 5分間隔
+  // ツイキャスを1分間隔に変更する場合: setInterval(checkTwitCastingStreams, 60 * 1000);
+
+  // 初回チェックを即時実行
+  checkYouTubeStreams().catch(err => console.error('初回YouTubeチェックエラー:', err.message));
+  checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err.message));
+  checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err.message));
 });
 
 // メッセージリスナー（/mazakari用）
@@ -551,7 +753,7 @@ client.on('messageCreate', async message => {
     if (messageContent.length > 2000) {
       await message.reply({
         content: 'ファイルの内容が2000文字を超えています。短くしてください。',
-        ephemeral: ,
+        ephemeral: true,
       });
       pendingMazakari.delete(message.author.id);
       return;
@@ -610,7 +812,7 @@ client.on('messageCreate', async message => {
     if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
       buttons.push(
         new ButtonBuilder()
-          .setLabel('TwitCasting通知')
+          .setLabel('ツイキャス通知')
           .setStyle(ButtonStyle.Link)
           .setURL(oauthUrls.twitcasting),
       );
@@ -891,7 +1093,7 @@ client.on('interactionCreate', async interaction => {
         await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `配信通知設定を保存しました。\nチャンネル: ${channel}\nライブロール: ${liveRole}`,
-          ephemeral: false
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'set_mazakari_roles') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
