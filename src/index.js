@@ -744,7 +744,7 @@ client.on('guildMemberAdd', async member => {
     if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
       buttons.push(
         new ButtonBuilder()
-          .setLabel('TwitCasting通知')
+          .setLabel('ツイキャス通知')
           .setStyle(ButtonStyle.Link)
           .setURL(oauthUrls.twitcasting),
       );
