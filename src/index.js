@@ -242,11 +242,9 @@ async function startServer() {
 
     try {
       let type, guildId;
-      // state から type と guildId をデコード（mazakari の場合）
       if (state.includes('_')) {
         [type, guildId] = state.split('_');
       } else {
-        // /link 系コマンドの場合
         type = state;
         guildId = null;
       }
@@ -284,11 +282,19 @@ async function startServer() {
         const twitchUsername = twitchConnection.name;
 
         const streamers = await loadStreamers();
-        if (!streamers.some(s => s.twitchId === twitchId)) {
-          streamers.push({ discordId: userId, twitchId, twitchUsername });
-          await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-          console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
+        // Discord IDで既にリンク済みかチェック
+        if (streamers.some(s => s.discordId === userId)) {
+          return res.send('Twitchアカウントはすでにリンク済みです。');
         }
+        // 同じTwitchアカウントが別のユーザーで登録済みかチェック
+        if (streamers.some(s => s.twitchId === twitchId)) {
+          return res.status(400).send('このTwitchアカウントは別のユーザーで登録済みです。');
+        }
+
+        // 新規リンク
+        streamers.push({ discordId: userId, twitchId, twitchUsername });
+        await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+        console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
       } else if (type === 'youtube') {
         const config = await loadConfig();
         const youtubeAccountLimit = config.youtubeAccountLimit || 0;
@@ -308,11 +314,19 @@ async function startServer() {
         const youtubeId = youtubeConnection.id;
         const youtubeUsername = youtubeConnection.name;
 
-        if (!youtubers.some(y => y.youtubeId === youtubeId)) {
-          youtubers.push({ discordId: userId, youtubeId, youtubeUsername });
-          await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-          console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
+        // Discord IDで既にリンク済みかチェック
+        if (youtubers.some(y => y.discordId === userId)) {
+          return res.send('YouTubeアカウントはすでにリンク済みです。');
         }
+        // 同じYouTubeアカウントが別のユーザーで登録済みかチェック
+        if (youtubers.some(y => y.youtubeId === youtubeId)) {
+          return res.status(400).send('このYouTubeアカウントは別のユーザーで登録済みです。');
+        }
+
+        // 新規リンク
+        youtubers.push({ discordId: userId, youtubeId, youtubeUsername });
+        await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+        console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
       } else if (type === 'twitcasting') {
         const config = await loadConfig();
         const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
@@ -332,14 +346,22 @@ async function startServer() {
         const twitcastingId = twitcastingConnection.id;
         const twitcastingUsername = twitcastingConnection.name;
 
-        if (!twitcasters.some(t => t.twitcastingId === twitcastingId)) {
-          twitcasters.push({ discordId: userId, twitcastingId, twitcastingUsername });
-          await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
-          console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
+        // Discord IDで既にリンク済みかチェック
+        if (twitcasters.some(t => t.discordId === userId)) {
+          return res.send('ツイキャスアカウントはすでにリンク済みです。');
         }
+        // 同じツイキャスアカウントが別のユーザーで登録済みかチェック
+        if (twitcasters.some(t => t.twitcastingId === twitcastingId)) {
+          return res.status(400).send('このツイキャスアカウントは別のユーザーで登録済みです。');
+        }
+
+        // 新規リンク
+        twitcasters.push({ discordId: userId, twitcastingId, twitcastingUsername });
+        await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+        console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
       }
 
-      // ロール付与（/mazakari の場合のみ）
+      // ロール付与（/mazakariの場合のみ）
       if (guildId) {
         const guild = client.guilds.cache.get(guildId);
         if (!guild) {
