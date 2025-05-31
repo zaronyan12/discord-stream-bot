@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const FormData = require('form-data');
 const https = require('https');
-require('dotenv').config({ path: '/home/sambaktorio/discord-stream/.env' });
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // 環境変数
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -834,12 +834,13 @@ client.on('interactionCreate', async interaction => {
           flags: InteractionResponseFlags.Ephemeral,
         });
       }
-    } else if (interaction.isButton()) {
-      // ボタン処理を統合
-      let type, guildId;
-      if (interaction.customId.includes('_notification_')) {
-        [type, guildId] = interaction.customId.split('_notification_');
-      } else {
+    } 
+else if (interaction.isButton()) {
+  if (interaction.customId.includes('_notification_')) {
+    await handleNotificationButton(interaction, client);
+  }
+}
+ else {
         type = interaction.customId.replace('_notification', '');
         guildId = interaction.guild?.id;
       }
@@ -983,3 +984,72 @@ client.login(DISCORD_TOKEN).catch(err => {
   console.error('ボットログインエラー:', err.message);
   process.exit(1);
 });
+
+async function handleNotificationButton(interaction, client) {
+  try {
+    let [type, guildId] = interaction.customId.split('_notification_');
+
+    const settings = await loadServerSettings();
+    const guild = client.guilds.cache.get(guildId);
+
+    if (!guild) {
+      return interaction.reply({
+        content: '通知元のサーバーが見つかりませんでした。サーバーから退出した可能性があります。',
+        ephemeral: true,
+      });
+    }
+
+    const guildSettings = settings.servers[guildId];
+    const roleId = guildSettings?.notificationRoles?.[type];
+
+    if (!roleId) {
+      return interaction.reply({
+        content: '通知ロールが設定されていません。サーバー管理者にお問い合わせください。',
+        ephemeral: true,
+      });
+    }
+
+    const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+    if (!member) {
+      return interaction.reply({
+        content: 'このサーバーのメンバー情報が取得できませんでした。既に退出している可能性があります。',
+        ephemeral: true,
+      });
+    }
+
+    const role = await guild.roles.fetch(roleId).catch(() => null);
+    if (!role) {
+      return interaction.reply({
+        content: '指定された通知ロールが見つかりません。管理者にご確認ください。',
+        ephemeral: true,
+      });
+    }
+
+    if (guild.members.me.roles.highest.position <= role.position) {
+      return interaction.reply({
+        content: 'ボットの権限が足りず、ロールを付与できませんでした。管理者に権限の確認を依頼してください。',
+        ephemeral: true,
+      });
+    }
+
+    await member.roles.add(roleId);
+
+    await interaction.reply({
+      content: `✅ ロール「${role.name}」を付与しました！`,
+      ephemeral: true,
+    });
+  } catch (err) {
+    console.error('通知ボタン処理エラー:', {
+      user: interaction.user.tag,
+      userId: interaction.user.id,
+      error: err.message,
+      stack: err.stack,
+    });
+    if (!interaction.replied) {
+      await interaction.reply({
+        content: 'ロール付与中に予期せぬエラーが発生しました。後ほど再試行してください。',
+        ephemeral: true,
+      });
+    }
+  }
+}
