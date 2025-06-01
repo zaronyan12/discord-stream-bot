@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs').promises;
 const FormData = require('form-data');
 const https = require('https');
+const parser = require('xml2js').parseStringPromise;
+const crypto = require('crypto');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // 環境変数
@@ -15,6 +17,7 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+const YOUTUBE_WEBHOOK_SECRET = process.env.YOUTUBE_WEBHOOK_SECRET;
 const TWITCASTING_CLIENT_ID = process.env.TWITCASTING_CLIENT_ID;
 const TWITCASTING_CLIENT_SECRET = process.env.TWITCASTING_CLIENT_SECRET;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -59,6 +62,10 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
+
+// Expressアプリ
+const app = express();
+app.use(express.text({ type: 'application/xml' }));
 
 // 設定ファイルの読み込み
 async function loadConfig(force = false) {
@@ -250,71 +257,104 @@ async function getTwitchAccessToken() {
   }
 }
 
-// YouTubeライブ配信のチェック（エラーハンドリング強化）
-async function checkYouTubeStreams() {
+// WebSub Webhookエンドポイント
+app.post('/webhook/youtube', async (req, res) => {
+  try {
+    // 署名検証
+    const signature = req.headers['x-hub-signature'];
+    if (signature) {
+      const [algo, sig] = signature.split('=');
+      const hmac = crypto.createHmac(algo, YOUTUBE_WEBHOOK_SECRET);
+      hmac.update(req.body);
+      const computedSig = hmac.digest('hex');
+      if (sig !== computedSig) {
+        console.log('署名検証失敗:', { signature, computedSig });
+        return res.sendStatus(200); // WebSub仕様で2xx応答
+      }
+    }
+
+    console.log('YouTube Webhook受信');
+    const data = await parser(req.body);
+    const entry = data.feed.entry?.[0];
+    if (!entry) {
+      console.log('エントリなし、検証リクエストの可能性');
+      return res.sendStatus(200);
+    }
+
+    const channelId = entry['yt:channelId']?.[0];
+    const videoId = entry['yt:videoId']?.[0];
+    const title = entry.title?.[0];
+    if (!channelId || !videoId || !title) {
+      console.log('無効なデータ:', { channelId, videoId, title });
+      return res.sendStatus(200);
+    }
+
+    const youtubers = await loadYoutubers();
+    const youtuber = youtubers.find(y => y.youtubeId === channelId);
+    if (!youtuber) {
+      console.log(`チャンネル未登録: ${channelId}`);
+      return res.sendStatus(200);
+    }
+
+    // ライブ配信確認（1クォータ）
+    const videoResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+      params: { part: 'liveStreamingDetails,snippet', id: videoId, key: YOUTUBE_API_KEY },
+    });
+    const video = videoResponse.data.items?.[0];
+    const serverSettings = await loadServerSettings();
+
+    if (video?.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
+      for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
+        if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
+        if (settings.keywords && settings.keywords.length > 0) {
+          if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
+            console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
+            continue;
+          }
+        }
+        const channel = client.channels.cache.get(settings.channelId);
+        if (channel) {
+          await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
+          console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
+        }
+      }
+      activeStreams.youtube.set(channelId, { videoId, title, notifiedAt: Date.now() });
+    } else if (video?.liveStreamingDetails?.actualEndTime) {
+      activeStreams.youtube.delete(channelId);
+      console.log(`ライブ配信終了: ${youtuber.youtubeUsername}`);
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('Webhook処理エラー:', {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    });
+    res.sendStatus(500);
+  }
+});
+
+// WebSubサブスクリプションの更新
+async function renewSubscriptions() {
   const youtubers = await loadYoutubers();
-  const serverSettings = await loadServerSettings();
   for (const youtuber of youtubers) {
     try {
-      console.log(`YouTubeチャンネル状態チェック: ${youtuber.youtubeUsername} (${youtuber.youtubeId})`);
-      // まずchannelsエンドポイントでライブ状態をチェック（1クォータ）
-      const channelResponse = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
-        params: {
-          part: 'status,liveStreamingDetails',
-          id: youtuber.youtubeId,
-          key: YOUTUBE_API_KEY,
-        },
+      const topicUrl = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${youtuber.youtubeId}`;
+      const callbackUrl = 'https://zaronyanbot.com/webhook/youtube';
+      await axios.post('https://pubsubhubbub.appspot.com/subscribe', {
+        'hub.mode': 'subscribe',
+        'hub.topic': topicUrl,
+        'hub.callback': callbackUrl,
+        'hub.verify': 'async',
+        'hub.secret': YOUTUBE_WEBHOOK_SECRET,
       });
-      const channel = channelResponse.data.items?.[0];
-      const isLive = channel?.liveStreamingDetails?.activeLiveStream;
-      const cachedStream = activeStreams.youtube.get(youtuber.youtubeId);
-
-      if (isLive && !cachedStream) {
-        // ライブ配信が開始された場合、詳細を取得（100クォータ）
-        console.log(`ライブ配信検出: ${youtuber.youtubeUsername}, 詳細を取得`);
-        const searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-          params: {
-            part: 'id,snippet',
-            channelId: youtuber.youtubeId,
-            eventType: 'live',
-            type: 'video',
-            key: YOUTUBE_API_KEY,
-          },
-        });
-        const currentStream = searchResponse.data.items.length > 0 ? searchResponse.data.items[0] : null;
-        if (currentStream) {
-          const videoId = currentStream.id.videoId;
-          const title = currentStream.snippet.title;
-          for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-            if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
-            if (settings.keywords && settings.keywords.length > 0) {
-              if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
-                console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
-                continue;
-              }
-            }
-            const channel = client.channels.cache.get(settings.channelId);
-            if (channel) {
-              await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
-              console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
-            }
-          }
-          activeStreams.youtube.set(youtuber.youtubeId, { videoId, title, notifiedAt: Date.now() });
-        }
-      } else if (!isLive && cachedStream) {
-        // ライブ配信が終了した場合
-        console.log(`ライブ配信終了: ${youtuber.youtubeUsername}`);
-        activeStreams.youtube.delete(youtuber.youtubeId);
-      }
+      console.log(`サブスクリプション更新: ${youtuber.youtubeUsername} (${youtuber.youtubeId})`);
     } catch (err) {
-      console.error(`YouTube APIエラー (${youtuber.youtubeUsername}, ${youtuber.youtubeId}):`, {
+      console.error(`サブスクリプション更新エラー (${youtuber.youtubeUsername}):`, {
         message: err.message,
         status: err.response?.status,
         data: err.response?.data,
-        config: {
-          url: err.config?.url,
-          params: err.config?.params,
-        },
       });
     }
   }
@@ -348,7 +388,6 @@ async function checkTwitchStreams() {
         const streamId = currentStream.id;
         const title = currentStream.title;
         if (!cachedStream || cachedStream.streamId !== streamId) {
-          // 新しいライブ配信を検出
           for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
             if (!settings.channelId || !settings.notificationRoles?.twitch) continue;
             if (settings.keywords && settings.keywords.length > 0) {
@@ -366,7 +405,6 @@ async function checkTwitchStreams() {
           activeStreams.twitch.set(streamer.twitchId, { streamId, title, notifiedAt: Date.now() });
         }
       } else if (cachedStream) {
-        // ライブ終了
         console.log(`ライブ配信終了: ${streamer.twitchUsername}`);
         activeStreams.twitch.delete(streamer.twitchId);
       }
@@ -396,7 +434,6 @@ async function checkTwitCastingStreams() {
         const liveId = currentStream.id;
         const title = currentStream.title;
         if (!cachedStream || cachedStream.liveId !== liveId) {
-          // 新しいライブ配信を検出
           for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
             if (!settings.channelId || !settings.notificationRoles?.twitcasting) continue;
             if (settings.keywords && settings.keywords.length > 0) {
@@ -414,7 +451,6 @@ async function checkTwitCastingStreams() {
           activeStreams.twitcasting.set(twitcaster.twitcastingId, { liveId, title, notifiedAt: Date.now() });
         }
       } else if (cachedStream) {
-        // ライブ終了
         console.log(`ライブ配信終了: ${twitcaster.twitcastingUsername}`);
         activeStreams.twitcasting.delete(twitcaster.twitcastingId);
       }
@@ -425,7 +461,6 @@ async function checkTwitCastingStreams() {
 }
 
 // Expressサーバーの設定
-const app = express();
 async function startServer() {
   const options = {
     key: await fs.readFile('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
@@ -719,11 +754,11 @@ client.once('ready', async () => {
 
   // ポーリングの開始
   console.log('ライブ配信ポーリングを開始します');
-  setInterval(checkYouTubeStreams, 5 * 60 * 1000); // YouTube: 5分間隔
   setInterval(checkTwitchStreams, 60 * 1000); // Twitch: 1分間隔
   setInterval(checkTwitCastingStreams, 5 * 60 * 1000); // ツイキャス: 5分間隔
+  await renewSubscriptions(); // WebSubサブスクリプション初回登録
+  setInterval(renewSubscriptions, 24 * 60 * 60 * 1000); // 毎日更新
   // 初回チェックを即時実行
-  checkYouTubeStreams().catch(err => console.error('初回YouTubeチェックエラー:', err.message));
   checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err.message));
   checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err.message));
 });
