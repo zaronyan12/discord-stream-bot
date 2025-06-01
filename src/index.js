@@ -258,6 +258,15 @@ async function getTwitchAccessToken() {
 }
 
 // WebSub Webhookエンドポイント
+app.get('/webhook/youtube', async (req, res) => {
+  const challenge = req.query['hub.challenge'];
+  if (challenge) {
+    console.log('WebSub検証リクエスト受信:', challenge);
+    return res.status(200).send(challenge);
+  }
+  res.status(400).send('Invalid request');
+});
+
 app.post('/webhook/youtube', async (req, res) => {
   try {
     // 署名検証
@@ -342,14 +351,18 @@ async function renewSubscriptions() {
     try {
       const topicUrl = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${youtuber.youtubeId}`;
       const callbackUrl = 'https://zaronyanbot.com/webhook/youtube';
-      await axios.post('https://pubsubhubbub.appspot.com/subscribe', {
+      const requestBody = {
         'hub.mode': 'subscribe',
         'hub.topic': topicUrl,
         'hub.callback': callbackUrl,
         'hub.verify': 'async',
         'hub.secret': YOUTUBE_WEBHOOK_SECRET,
+      };
+      console.log(`サブスクリプションリクエスト: ${youtuber.youtubeUsername} (${youtuber.youtubeId}), hub.mode=${requestBody['hub.mode']}`);
+      await axios.post('https://pubsubhubbub.appspot.com/subscribe', new URLSearchParams(requestBody), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
-      console.log(`サブスクリプション更新: ${youtuber.youtubeUsername} (${youtuber.youtubeId})`);
+      console.log(`サブスクリプション更新成功: ${youtuber.youtubeUsername} (${youtuber.youtubeId})`);
     } catch (err) {
       console.error(`サブスクリプション更新エラー (${youtuber.youtubeUsername}):`, {
         message: err.message,
@@ -752,13 +765,13 @@ client.once('ready', async () => {
     console.error('サーバー起動エラー:', err.message);
   }
 
-  // ポーリングの開始
-  console.log('ライブ配信ポーリングを開始します');
+  // ポーリング開始とWebSubサブスクリプション
+  console.log('ライブ配信監視を開始します');
   setInterval(checkTwitchStreams, 60 * 1000); // Twitch: 1分間隔
   setInterval(checkTwitCastingStreams, 5 * 60 * 1000); // ツイキャス: 5分間隔
-  await renewSubscriptions(); // WebSubサブスクリプション初回登録
+  await renewSubscriptions(); // WebSub初回登録
   setInterval(renewSubscriptions, 24 * 60 * 60 * 1000); // 毎日更新
-  // 初回チェックを即時実行
+  // 初回チェック
   checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err.message));
   checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err.message));
 });
@@ -831,7 +844,7 @@ client.on('messageCreate', async message => {
 
     const config = await loadConfig();
     const youtubeAccountLimit = config.youtubeAccountLimit || 0;
-    const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
+    const twitcastingAccountLimit = config.twitCastingAccountLimit || 25;
     const youtubers = await loadYoutubers();
     const twitcasters = await loadTwitcasters();
 
