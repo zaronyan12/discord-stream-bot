@@ -1110,7 +1110,7 @@ client.on('interactionCreate', async interaction => {
           channelId: channel.id,
           liveRoleId: liveRole.id,
           notificationRoles: serverSettings.servers[interaction.guild.id]?.notificationRoles || {},
-          keywords: serverSettings.servers[interaction.guild.id]?.keywords || [],
+          keywords: serverSettings.servers[interaction.guildId]?.keywords || [],
         };
         await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
@@ -1160,7 +1160,7 @@ client.on('interactionCreate', async interaction => {
         const messageInput = new TextInputBuilder()
           .setCustomId('message')
           .setLabel('送信するメッセージ')
-          .setStyle(TextInputStyle.Paragraph')
+          .setStyle(TextInputStyle.Paragraph)
           .setPlaceholder('サーバー管理者に送信するメッセージを入力')
           .setRequired(true);
         const row1 = new ActionRowBuilder().addComponents(passwordInput);
@@ -1252,7 +1252,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         mazakari.enabled[interaction.guildId] = false;
-        delete mazakari.delete mazakari.guilds[interaction.guildId];
+        delete mazakari.guilds[interaction.guildId];
         await fs.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
         await interaction.reply({
           content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
