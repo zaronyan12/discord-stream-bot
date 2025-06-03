@@ -1282,9 +1282,9 @@ client.on('interactionCreate', async interaction => {
 
           await interaction.reply({
             content: `配信設定を削除しました。\n` +
-                     `- Twitch: ${streamers.length}件残存\n`,
-                     `- YouTube: ${youtubers.length}件残存\n`,
-                     `- TwitCasting: ${twitcasters.length}件残存\n`,
+                     `- Twitch: ${streamers.length}件残存\n` +
+                     `- YouTube: ${youtubers.length}件残存\n` +
+                     `- TwitCasting: ${twitcasters.length}件残存\n` +
                      `除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
             ephemeral: true,
           });
