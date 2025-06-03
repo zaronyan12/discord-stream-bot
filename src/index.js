@@ -3,7 +3,8 @@ const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, But
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
-const fs = require('fs').promises;
+const fs = require('fs'); // 修正: fs.promises から fs に変更
+const fsPromises = require('fs').promises; // 非同期処理用に fs.promises を別途インポート
 const https = require('https');
 const FormData = require('form-data');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
@@ -74,7 +75,7 @@ async function loadConfig(force = false) {
   }
   try {
     console.log('config.jsonを読み込む:', CONFIG_FILE);
-    const data = await fs.readFile(CONFIG_FILE, 'utf8');
+    const data = await fsPromises.readFile(CONFIG_FILE, 'utf8');
     configCache = JSON.parse(data);
     console.log('config.json読み込み成功');
     return configCache;
@@ -93,7 +94,7 @@ async function loadStreamers(force = false) {
   }
   try {
     console.log('streamers.jsonを読み込み中:', STREAMERS_FILE);
-    const data = await fs.readFile(STREAMERS_FILE, 'utf8');
+    const data = await fsPromises.readFile(STREAMERS_FILE, 'utf8');
     streamersCache = JSON.parse(data);
     console.log('streamers.json読み込み成功');
     return streamersCache;
@@ -112,7 +113,7 @@ async function loadYoutubers(force = false) {
   }
   try {
     console.log('youtubers.jsonを読み込み中:', YOUTUBERS_FILE);
-    const data = await fs.readFile(YOUTUBERS_FILE, 'utf8');
+    const data = await fsPromises.readFile(YOUTUBERS_FILE, 'utf8');
     youtubersCache = JSON.parse(data);
     console.log('youtubers.json読み込み成功');
     return youtubersCache;
@@ -131,7 +132,7 @@ async function loadTwitcasters(force = false) {
   }
   try {
     console.log('twitcasters.jsonを読み込み中:', TWITCASTERS_FILE);
-    const data = await fs.readFile(TWITCASTERS_FILE, 'utf8');
+    const data = await fsPromises.readFile(TWITCASTERS_FILE, 'utf8');
     twitcastersCache = JSON.parse(data);
     console.log('twitcasters.json読み込み成功');
     return twitcastersCache;
@@ -150,7 +151,7 @@ async function loadServerSettings(force = false) {
   }
   try {
     console.log('serverSettings.jsonを読み込み中:', SERVER_SETTINGS_FILE);
-    const data = await fs.readFile(SERVER_SETTINGS_FILE, 'utf8');
+    const data = await fsPromises.readFile(SERVER_SETTINGS_FILE, 'utf8');
     serverSettingsCache = JSON.parse(data);
     console.log('serverSettings.json読み込み成功');
     return serverSettingsCache;
@@ -169,7 +170,7 @@ async function loadAdmins(force = false) {
   }
   try {
     console.log('admins.jsonを読み込み中:', ADMINS_FILE);
-    const data = await fs.readFile(ADMINS_FILE, 'utf8');
+    const data = await fsPromises.readFile(ADMINS_FILE, 'utf8');
     adminsCache = JSON.parse(data);
     console.log('admins.json読み込み成功');
     return adminsCache;
@@ -188,7 +189,7 @@ async function loadMazakari(force = false) {
   }
   try {
     console.log('mazakari.jsonを読み込み中:', MAZAKARI_FILE);
-    const data = await fs.readFile(MAZAKARI_FILE, 'utf8');
+    const data = await fsPromises.readFile(MAZAKARI_FILE, 'utf8');
     mazakariCache = JSON.parse(data);
     console.log('mazakari.json読み込み成功');
     return mazakariCache;
@@ -207,7 +208,7 @@ async function loadCreators(force = false) {
   }
   try {
     console.log('creators.jsonを読み込み中:', CREATORS_FILE);
-    const data = await fs.readFile(CREATORS_FILE, 'utf8');
+    const data = await fsPromises.readFile(CREATORS_FILE, 'utf8');
     const parsedData = JSON.parse(data);
     if (!parsedData.creators || !Array.isArray(parsedData.creators)) {
       console.warn('creators.jsonにcreators配列がありません。デフォルトを設定します。');
@@ -231,7 +232,7 @@ async function saveCreators(creators) {
   try {
     console.log('creators.jsonを保存中:', CREATORS_FILE);
     creatorsCache = creators && Array.isArray(creators.creators) ? creators : { creators: [BOT_CREATOR_ID] };
-    await fs.writeFile(CREATORS_FILE, JSON.stringify(creatorsCache, null, 2));
+    await fsPromises.writeFile(CREATORS_FILE, JSON.stringify(creatorsCache, null, 2));
     console.log('creators.json保存成功');
   } catch (err) {
     console.error('製作者リスト保存エラー:', err.message);
@@ -497,7 +498,7 @@ app.get('/callback', async (req, res) => {
       }
 
       streamers.push({ discordId: userId, twitchId, twitchUsername });
-      await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+      await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
       console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
     } else if (type === 'youtube') {
       const config = await loadConfig();
@@ -526,7 +527,7 @@ app.get('/callback', async (req, res) => {
       }
 
       youtubers.push({ discordId: userId, youtubeId, youtubeUsername });
-      await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+      await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
       console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
     } else if (type === 'twitcasting') {
       const config = await loadConfig();
@@ -555,7 +556,7 @@ app.get('/callback', async (req, res) => {
       }
 
       twitcasters.push({ discordId: userId, twitcastingId, twitcastingUsername });
-      await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+      await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
       console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
     }
 
@@ -604,14 +605,19 @@ app.get('/callback', async (req, res) => {
 });
 
 // Expressサーバーの起動（HTTPS）
-const options = {
-  key: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
-  cert: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
-};
+try {
+  const options = {
+    key: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
+    cert: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
+  };
 
-https.createServer(options, app).listen(3001, () => {
-  console.log('✅ HTTPS メインアプリがポート3001で起動しました');
-});
+  https.createServer(options, app).listen(3001, () => {
+    console.log('✅ HTTPS メインアプリがポート3001で起動しました');
+  });
+} catch (err) {
+  console.error('HTTPSサーバー起動エラー: 証明書の読み込みに失敗しました', err.message);
+  process.exit(1);
+}
 
 // ボット起動時の処理
 client.once('ready', async () => {
@@ -888,7 +894,7 @@ client.on('messageCreate', async message => {
     const mazakari = await loadMazakari();
     mazakari.enabled[pending.guildId] = true;
     mazakari.guilds[pending.guildId] = { message: messageContent };
-    await fs.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
+    await fsPromises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
     await message.reply({
       content: `メッセージ送信を試みました。\n成功: ${successCount} メンバー\nDM失敗（チャンネル作成）: ${failCount} メンバー`,
       ephemeral: true,
@@ -1107,7 +1113,7 @@ client.on('interactionCreate', async interaction => {
           notificationRoles: serverSettings.servers[interaction.guild.id]?.notificationRoles || {},
           keywords: serverSettings.servers[interaction.guild.id]?.keywords || [],
         };
-        await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `配信通知設定を保存しました。\nチャンネル: ${channel}\nライブロール: ${liveRole}`,
           ephemeral: true,
@@ -1132,7 +1138,7 @@ client.on('interactionCreate', async interaction => {
             twitcasting: twitcastingRole.id,
           },
         };
-        await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `通知ロールを設定しました。\nTwitch: ${twitchRole}\nYouTube: ${youtubeRole}\nツイキャス: ${twitcastingRole}`,
           ephemeral: true,
@@ -1250,7 +1256,7 @@ client.on('interactionCreate', async interaction => {
 
         mazakari.enabled[interaction.guild.id] = false;
         delete mazakari.guilds[interaction.guild.id];
-        await fs.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
+        await fsPromises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
         await interaction.reply({
           content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
           ephemeral: true,
@@ -1273,9 +1279,9 @@ client.on('interactionCreate', async interaction => {
         twitcasters = twitcasters.filter(t => exclude.includes(t.discordId));
 
         try {
-          await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-          await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-          await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+          await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+          await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+          await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
 
           await interaction.reply({
             content: `配信設定を削除しました。\n` +
@@ -1306,7 +1312,7 @@ client.on('interactionCreate', async interaction => {
           ...serverSettings.servers[interaction.guild.id],
           keywords,
         };
-        await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `キーワードを設定しました: ${keywords.join(', ')}`,
           ephemeral: true,
