@@ -280,9 +280,9 @@ app.post('/webhook/youtube', async (req, res) => {
     if (video?.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
       
 for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-  if (!streamer.guildIds || !streamer.guildIds.includes(guildId)) continue;
-
-        if (channel) {
+  if (!streamer.guildIds || !youtuber.guildIds.includes(guildId)) continue;
+        const channel = client.channels.cache.get(settings.channelId); // チャンネルをここで取得
+        if (settings.channelId) {
           await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
           console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
         }
