@@ -611,11 +611,14 @@ try {
     cert: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
   };
 
-  https.createServer(options, app).listen(3001, () => {
-    console.log('✅ HTTPS メインアプリがポート3001で起動しました');
+  https.createServer(options, app).listen(3001, '0.0.0.0', () => {
+    console.log('✅ HTTPS メインアプリがポート3001で起動しました (IPv4)');
   });
 } catch (err) {
-  console.error('HTTPSサーバー起動エラー: 証明書の読み込みに失敗しました', err.message);
+  console.error('HTTPSサーバー起動エラー:', {
+    message: err.message,
+    stack: err.stack,
+  });
   process.exit(1);
 }
 
