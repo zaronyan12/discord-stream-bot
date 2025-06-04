@@ -1051,7 +1051,7 @@ client.on('interactionCreate', async interaction => {
         console.log('Generated OAuth URL for Twitch:', oauthUrl);
         await interaction.reply({
           content: `Twitchアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'link_youtube') {
         const config = await loadConfig();
@@ -1061,7 +1061,7 @@ client.on('interactionCreate', async interaction => {
         if (youtubeAccountLimit > 0 && youtubers.length >= youtubeAccountLimit) {
           await interaction.reply({
             content: `現在YouTube配信通知はAPIの関係で${youtubeAccountLimit}人の制限があります。正式なアップデートをお待ちください。`,
-            ephemeral: true,
+            ephemeral: false,
           });
           return;
         }
@@ -1074,7 +1074,7 @@ client.on('interactionCreate', async interaction => {
         console.log('Generated OAuth URL for YouTube:', oauthUrl);
         await interaction.reply({
           content: `YouTubeアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'link_twitcasting') {
         const config = await loadConfig();
@@ -1084,7 +1084,7 @@ client.on('interactionCreate', async interaction => {
         if (twitcastingAccountLimit > 0 && twitcasters.length >= twitcastingAccountLimit) {
           await interaction.reply({
             content: `現在ツイキャス配信通知は${twitcastingAccountLimit}人の制限があります。`,
-            ephemeral: true,
+            ephemeral: false,
           });
           return;
         }
@@ -1097,7 +1097,7 @@ client.on('interactionCreate', async interaction => {
         console.log('Generated OAuth URL for TwitCasting:', oauthUrl);
         await interaction.reply({
           content: `ツイキャスアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'setup_s') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -1119,7 +1119,7 @@ client.on('interactionCreate', async interaction => {
         await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `配信通知設定を保存しました。\nチャンネル: ${channel}\nライブロール: ${liveRole}`,
-          ephemeral: true,
+          ephemeral: false,
         });
       } else if (interaction.commandName === 'set_mazakari_roles') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
