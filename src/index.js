@@ -278,15 +278,10 @@ app.post('/webhook/youtube', async (req, res) => {
     const serverSettings = await loadServerSettings();
 
     if (video?.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
-      for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-        if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
-        if (settings.keywords && settings.keywords.length > 0) {
-          if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
-            console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
-            continue;
-          }
-        }
-        const channel = client.channels.cache.get(settings.channelId);
+      
+for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
+  if (!streamer.guildIds || !streamer.guildIds.includes(guildId)) continue;
+
         if (channel) {
           await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
           console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
@@ -376,7 +371,17 @@ async function checkTwitchStreams() {
             }
             const channel = client.channels.cache.get(settings.channelId);
             if (channel) {
-              await channel.send(`🔴 ${streamer.twitchUsername} がTwitchでライブ配信中！\nタイトル: ${title}\nhttps://www.twitch.tv/${streamer.twitchUsername}`);
+              
+await channel.send({
+  embeds: [{
+    title: `${streamer.twitchUsername} がTwitchでライブ配信中！`,
+    description: `📺 タイトル: ${title}`,
+    url: `https://www.twitch.tv/${streamer.twitchUsername}`,
+    image: { url: currentStream.thumbnail_url.replace("{width}", "1280").replace("{height}", "720") },
+    color: 6570404
+  }]
+});
+
               console.log(`Twitch通知送信: ${streamer.twitchUsername}, サーバー=${guildId}`);
             }
           }
@@ -715,6 +720,20 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('test_message')
       .setDescription('テストメッセージを送信します'),
+
+    new SlashCommandBuilder()
+      .setName('clear_keywords')
+      .setDescription('すべての通知キーワードを削除します'),
+    new SlashCommandBuilder()
+      .setName('remember_twitch')
+      .setDescription('このサーバーに対してTwitch通知を有効化します（配信者のみ）'),
+    new SlashCommandBuilder()
+      .setName('remember_youtube')
+      .setDescription('このサーバーに対してYouTube通知を有効化します（配信者のみ）'),
+    new SlashCommandBuilder()
+      .setName('remember_twitcasting')
+      .setDescription('このサーバーに対してツイキャス通知を有効化します（配信者のみ）'),
+
   ];
 
   try {
@@ -1324,7 +1343,64 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({
           content: 'テストメッセージ',
           ephemeral: true,
+        }
+
+    else if (interaction.commandName === 'clear_keywords') {
+        if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
+          return interaction.reply({
+            content: 'このコマンドを使用するには管理者権限が必要です。',
+            ephemeral: true,
+          });
+        }
+        const serverSettings = await loadServerSettings();
+        serverSettings.servers[interaction.guild.id] = {
+          ...serverSettings.servers[interaction.guild.id],
+          keywords: [],
+        };
+        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await interaction.reply({
+          content: 'キーワードをすべて削除しました。',
+          ephemeral: true,
         });
+    }
+    else if (interaction.commandName === 'remember_twitch' || interaction.commandName === 'remember_youtube' || interaction.commandName === 'remember_twitcasting') {
+        const type = interaction.commandName.split('_')[1]; // twitch, youtube, twitcasting
+        const userId = interaction.user.id;
+        const guildId = interaction.guildId;
+        const dataLoaders = {
+          twitch: loadStreamers,
+          youtube: loadYoutubers,
+          twitcasting: loadTwitcasters,
+        };
+        const filePaths = {
+          twitch: STREAMERS_FILE,
+          youtube: YOUTUBERS_FILE,
+          twitcasting: TWITCASTERS_FILE,
+        };
+        const keyId = {
+          twitch: 'twitchId',
+          youtube: 'youtubeId',
+          twitcasting: 'twitcastingId',
+        };
+        const list = await dataLoaders[type]();
+        const entry = list.find(s => s.discordId === userId);
+        if (!entry) {
+          return interaction.reply({
+            content: `このDiscordアカウントは${type}にリンクされていません。先に \`/link_${type}\` を使用してください。`,
+            ephemeral: true,
+          });
+        }
+        if (!entry.guildIds) entry.guildIds = [];
+        if (!entry.guildIds.includes(guildId)) {
+          entry.guildIds.push(guildId);
+          await fsPromises.writeFile(filePaths[type], JSON.stringify(list, null, 2));
+        }
+        await interaction.reply({
+          content: `このサーバーでの${type.charAt(0).toUpperCase() + type.slice(1)}通知を有効化しました。`,
+          ephemeral: true,
+        });
+    }
+);
       }
     } else if (interaction.isModalSubmit()) {
       if (interaction.customId === 'admin_message_modal') {
