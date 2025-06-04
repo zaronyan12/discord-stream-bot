@@ -1343,7 +1343,8 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({
           content: 'テストメッセージ',
           ephemeral: true,
-        }
+        }); 
+      }
 
     else if (interaction.commandName === 'clear_keywords') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
