@@ -67,6 +67,34 @@ const client = new Client({
 const app = express();
 app.use(express.json()); // JSONボディを受け取る
 
+// 動的リダイレクトエンドポイント
+app.get('/redirect/:type/:guildId/:userId', async (req, res) => {
+  const { type, guildId, userId } = req.params;
+  if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
+    return res.status(400).send('無効なプラットフォームです。');
+  }
+  if (!client.guilds.cache.has(guildId)) {
+    return res.status(400).send('無効なサーバーIDです。');
+  }
+  if (!client.users.cache.has(userId)) {
+    return res.status(400).send('無効なユーザーIDです。');
+  }
+
+  const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
+    DISCORD_CLIENT_ID,
+  )}&redirect_uri=${encodeURIComponent(
+    REDIRECT_URI,
+  )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}_${userId}`;
+  console.log(`Generated OAuth URL for ${type}:`, {
+    url: oauthUrl,
+    guildId,
+    userId,
+    timestamp: new Date().toISOString(),
+  });
+
+  res.redirect(oauthUrl);
+});
+
 // 設定ファイルの読み込み
 async function loadConfig(force = false) {
   if (!force && configCache) {
@@ -446,24 +474,36 @@ async function checkTwitCastingStreams() {
 app.get('/callback', async (req, res) => {
   console.log('Received /callback request:', {
     query: req.query,
-    headers: req.headers,
+    headers: {},
   });
-  const { code, state } = req.query;
+  const { code, state, error, error_description } = req.query;
+  if (error) {
+    console.error('OAuthエラー:', { error, error_description });
+    return res.status(400).send(`認証エラー: ${error_description || error}`);
+  }
   if (!code || !state) {
-    return res.status(400).send('認証コードまたは状態がありません。');
+    return res.status(400).send('Invalid code or state.');
   }
 
   try {
-    let type, guildId;
+    let type, guildId, userId;
     if (state.includes('_')) {
-      [type, guildId] = state.split('_');
+      const parts = state.split('_');
+      if (parts.length === 3) {
+        [type, guildId, userId] = parts;
+      } else if (parts.length === 2) {
+        [type, guildId] = parts;
+      } else {
+        return res.status(400).send('無効な状態パラメータです。');
+      }
+      if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
+        return res.status(400).send('無効な状態パラメータです。');
+      }
+      if (!client.guilds.cache.has(guildId)) {
+        return res.status(400).send('指定されたサーバーが見つかりません。');
+      }
     } else {
-      type = state;
-      guildId = null;
-    }
-
-    if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
-      return res.status(400).send('無効な状態パラメータです。');
+      return res.status(400).send('状態パラメータの形式が無効です。');
     }
 
     const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
@@ -480,7 +520,12 @@ app.get('/callback', async (req, res) => {
     const userResponse = await axios.get('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const userId = userResponse.data.id;
+    const authUserId = userResponse.data.id;
+
+    // userId が指定されている場合、認証ユーザーが一致するか検証
+    if (userId && authUserId !== userId) {
+      return res.status(403).send('このリンクは別のユーザー向けです。');
+    }
 
     if (type === 'twitch') {
       const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
@@ -494,16 +539,21 @@ app.get('/callback', async (req, res) => {
       const twitchUsername = twitchConnection.name;
 
       const streamers = await loadStreamers();
-      if (streamers.some(s => s.discordId === userId)) {
-        return res.send('Twitchアカウントはすでにリンク済みです。');
-      }
-      if (streamers.some(s => s.twitchId === twitchId)) {
+      if (streamers.some(s => s.discordId === authUserId)) {
+        // 既存リンクの場合、guildIds に追加
+        const streamer = streamers.find(s => s.discordId === authUserId);
+        if (!streamer.guildIds) streamer.guildIds = [];
+        if (!streamer.guildIds.includes(guildId)) {
+          streamer.guildIds.push(guildId);
+          await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+        }
+      } else if (streamers.some(s => s.twitchId === twitchId)) {
         return res.status(400).send('このTwitchアカウントは別のユーザーで登録済みです。');
+      } else {
+        streamers.push({ discordId: authUserId, twitchId, twitchUsername, guildIds: [guildId] });
+        await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+        console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
       }
-
-      streamers.push({ discordId: userId, twitchId, twitchUsername });
-      await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-      console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
     } else if (type === 'youtube') {
       const config = await loadConfig();
       const youtubeAccountLimit = config.youtubeAccountLimit || 0;
@@ -523,16 +573,20 @@ app.get('/callback', async (req, res) => {
       const youtubeId = youtubeConnection.id;
       const youtubeUsername = youtubeConnection.name;
 
-      if (youtubers.some(y => y.discordId === userId)) {
-        return res.send('YouTubeアカウントはすでにリンク済みです。');
-      }
-      if (youtubers.some(y => y.youtubeId === youtubeId)) {
+      if (youtubers.some(y => y.discordId === authUserId)) {
+        const youtuber = youtubers.find(y => y.discordId === authUserId);
+        if (!youtuber.guildIds) youtuber.guildIds = [];
+        if (!youtuber.guildIds.includes(guildId)) {
+          youtuber.guildIds.push(guildId);
+          await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+        }
+      } else if (youtubers.some(y => y.youtubeId === youtubeId)) {
         return res.status(400).send('このYouTubeアカウントは別のユーザーで登録済みです。');
+      } else {
+        youtubers.push({ discordId: authUserId, youtubeId, youtubeUsername, guildIds: [guildId] });
+        await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+        console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
       }
-
-      youtubers.push({ discordId: userId, youtubeId, youtubeUsername });
-      await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-      console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
     } else if (type === 'twitcasting') {
       const config = await loadConfig();
       const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
@@ -552,16 +606,20 @@ app.get('/callback', async (req, res) => {
       const twitcastingId = twitcastingConnection.id;
       const twitcastingUsername = twitcastingConnection.name;
 
-      if (twitcasters.some(t => t.discordId === userId)) {
-        return res.send('ツイキャスアカウントはすでにリンク済みです。');
-      }
-      if (twitcasters.some(t => t.twitcastingId === twitcastingId)) {
+      if (twitcasters.some(t => t.discordId === authUserId)) {
+        const twitcaster = twitcasters.find(t => t.discordId === authUserId);
+        if (!twitcaster.guildIds) twitcaster.guildIds = [];
+        if (!twitcaster.guildIds.includes(guildId)) {
+          twitcaster.guildIds.push(guildId);
+          await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+        }
+      } else if (twitcasters.some(t => t.twitcastingId === twitcastingId)) {
         return res.status(400).send('このツイキャスアカウントは別のユーザーで登録済みです。');
+      } else {
+        twitcasters.push({ discordId: authUserId, twitcastingId, twitcastingUsername, guildIds: [guildId] });
+        await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+        console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
       }
-
-      twitcasters.push({ discordId: userId, twitcastingId, twitcastingUsername });
-      await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
-      console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
     }
 
     if (guildId) {
@@ -579,9 +637,9 @@ app.get('/callback', async (req, res) => {
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、通知ロールが設定されていないためロールを付与できませんでした。`);
       }
 
-      const member = await guild.members.fetch(userId).catch(() => null);
+      const member = await guild.members.fetch(authUserId).catch(() => null);
       if (!member) {
-        console.error(`メンバー取得失敗: ユーザー=${userId}, サーバー=${guild.id}`);
+        console.error(`メンバー取得失敗: ユーザー=${authUserId}, サーバー=${guild.id}`);
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、サーバーメンバー情報が取得できないためロールを付与できませんでした。`);
       }
 
@@ -632,15 +690,6 @@ client.once('ready', async () => {
 
   // スラッシュコマンドの登録
   const commands = [
-    new SlashCommandBuilder()
-      .setName('link_twitch')
-      .setDescription('Twitchアカウントをリンクします'),
-    new SlashCommandBuilder()
-      .setName('link_youtube')
-      .setDescription('YouTubeアカウントをリンクします'),
-    new SlashCommandBuilder()
-      .setName('link_twitcasting')
-      .setDescription('ツイキャスアカウントをリンクします'),
     new SlashCommandBuilder()
       .setName('setup_s')
       .setDescription('配信通知の設定を行います')
@@ -731,6 +780,9 @@ client.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('remember_twitcasting')
       .setDescription('このサーバーに対してツイキャス通知を有効化します（配信者のみ）'),
+    new SlashCommandBuilder()
+      .setName('link')
+      .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンクします'),
   ];
 
   try {
@@ -809,24 +861,6 @@ client.on('messageCreate', async message => {
       return;
     }
 
-    const oauthUrls = {
-      twitch: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
-      )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-      )}&response_type=code&scope=identify%20connections&state=twitch_${pending.guildId}`,
-      youtube: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
-      )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-      )}&response_type=code&scope=identify%20connections&state=youtube_${pending.guildId}`,
-      twitcasting: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
-      )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-      )}&response_type=code&scope=identify%20connections&state=twitcasting_${pending.guildId}`,
-    };
-
     const config = await loadConfig();
     const youtubeAccountLimit = config.youtubeAccountLimit || 0;
     const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
@@ -836,24 +870,24 @@ client.on('messageCreate', async message => {
     const buttons = [];
     buttons.push(
       new ButtonBuilder()
+        .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
         .setLabel('Twitch通知')
-        .setStyle(ButtonStyle.Link)
-        .setURL(oauthUrls.twitch),
+        .setStyle(ButtonStyle.Primary),
     );
     if (youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit) {
       buttons.push(
         new ButtonBuilder()
+          .setCustomId(`link_youtube_${pending.guildId}_${message.author.id}`)
           .setLabel('YouTube通知')
-          .setStyle(ButtonStyle.Link)
-          .setURL(oauthUrls.youtube),
+          .setStyle(ButtonStyle.Secondary),
       );
     }
     if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
       buttons.push(
         new ButtonBuilder()
+          .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
           .setLabel('ツイキャス通知')
-          .setStyle(ButtonStyle.Link)
-          .setURL(oauthUrls.twitcasting),
+          .setStyle(ButtonStyle.Success),
       );
     }
 
@@ -864,8 +898,27 @@ client.on('messageCreate', async message => {
 
     for (const member of members.values()) {
       if (member.user.bot) continue;
+      const memberRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`link_twitch_${pending.guildId}_${member.id}`)
+          .setLabel('Twitch通知')
+          .setStyle(ButtonStyle.Primary),
+        youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit
+          ? new ButtonBuilder()
+              .setCustomId(`link_youtube_${pending.guildId}_${member.id}`)
+              .setLabel('YouTube通知')
+              .setStyle(ButtonStyle.Secondary)
+          : null,
+        twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit
+          ? new ButtonBuilder()
+              .setCustomId(`link_twitcasting_${pending.guildId}_${member.id}`)
+              .setLabel('ツイキャス通知')
+              .setStyle(ButtonStyle.Success)
+          : null,
+      ).addComponents(row.components.filter(c => c));
+
       try {
-        await member.send({ content: messageContent, components: [row] });
+        await member.send({ content: messageContent, components: [memberRow] });
         successCount++;
       } catch (err) {
         console.error(`メンバー ${member.id} へのDM失敗:`, err.message);
@@ -899,7 +952,7 @@ client.on('messageCreate', async message => {
           });
           const sentMessage = await channel.send({
             content: `${member} ${messageContent}`,
-            components: [row],
+            components: [memberRow],
           });
           sentMessage.channelId = channel.id;
           successCount++;
@@ -943,24 +996,6 @@ client.on('guildMemberAdd', async member => {
 
     const messageContent = mazakari.guilds[guildId].message;
 
-    const oauthUrls = {
-      twitch: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
-      )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-      )}&response_type=code&scope=identify%20connections&state=twitch_${guildId}`,
-      youtube: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
-      )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-      )}&response_type=code&scope=identify%20connections&state=youtube_${guildId}`,
-      twitcasting: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-        DISCORD_CLIENT_ID,
-      )}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-      )}&response_type=code&scope=identify%20connections&state=twitcasting_${guildId}`,
-    };
-
     const config = await loadConfig();
     const youtubeAccountLimit = config.youtubeAccountLimit || 0;
     const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
@@ -970,24 +1005,24 @@ client.on('guildMemberAdd', async member => {
     const buttons = [];
     buttons.push(
       new ButtonBuilder()
+        .setCustomId(`link_twitch_${guildId}_${member.id}`)
         .setLabel('Twitch通知')
-        .setStyle(ButtonStyle.Link)
-        .setURL(oauthUrls.twitch),
+        .setStyle(ButtonStyle.Primary),
     );
     if (youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit) {
       buttons.push(
         new ButtonBuilder()
+          .setCustomId(`link_youtube_${guildId}_${member.id}`)
           .setLabel('YouTube通知')
-          .setStyle(ButtonStyle.Link)
-          .setURL(oauthUrls.youtube),
+          .setStyle(ButtonStyle.Secondary),
       );
     }
     if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
       buttons.push(
         new ButtonBuilder()
+          .setCustomId(`link_twitcasting_${guildId}_${member.id}`)
           .setLabel('ツイキャス通知')
-          .setStyle(ButtonStyle.Link)
-          .setURL(oauthUrls.twitcasting),
+          .setStyle(ButtonStyle.Success),
       );
     }
 
@@ -1058,64 +1093,7 @@ client.on('interactionCreate', async interaction => {
     const creators = await loadCreators();
 
     if (interaction.isCommand()) {
-      if (interaction.commandName === 'link_twitch') {
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID,
-        )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI,
-        )}&response_type=code&scope=identify%20connections&state=twitch_${interaction.guildId}`;
-        console.log('Generated OAuth URL for Twitch:', oauthUrl);
-        await interaction.reply({
-          content: `Twitchアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: false,
-        });
-      } else if (interaction.commandName === 'link_youtube') {
-        const config = await loadConfig();
-        const youtubeAccountLimit = config.youtubeAccountLimit || 0;
-        const youtubers = await loadYoutubers();
-
-        if (youtubeAccountLimit > 0 && youtubers.length >= youtubeAccountLimit) {
-          await interaction.reply({
-            content: `現在YouTube配信通知はAPIの関係で${youtubeAccountLimit}人の制限があります。正式なアップデートをお待ちください。`,
-            ephemeral: false,
-          });
-          return;
-        }
-
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID,
-        )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI,
-        )}&response_type=code&scope=identify%20connections&state=youtube_${interaction.guildId}`;
-        console.log('Generated OAuth URL for YouTube:', oauthUrl);
-        await interaction.reply({
-          content: `YouTubeアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: false,
-        });
-      } else if (interaction.commandName === 'link_twitcasting') {
-        const config = await loadConfig();
-        const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
-        const twitcasters = await loadTwitcasters();
-
-        if (twitcastingAccountLimit > 0 && twitcasters.length >= twitcastingAccountLimit) {
-          await interaction.reply({
-            content: `現在ツイキャス配信通知は${twitcastingAccountLimit}人の制限があります。`,
-            ephemeral: false,
-          });
-          return;
-        }
-
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID,
-        )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI,
-        )}&response_type=code&scope=identify%20connections&state=twitcasting_${interaction.guildId}`;
-        console.log('Generated OAuth URL for TwitCasting:', oauthUrl);
-        await interaction.reply({
-          content: `ツイキャスアカウントをリンクするには、以下のリンクから認証してください:\n${oauthUrl}`,
-          ephemeral: false,
-        });
-      } else if (interaction.commandName === 'setup_s') {
+      if (interaction.commandName === 'setup_s') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
           return interaction.reply({
             content: 'このコマンドを使用するには管理者権限が必要です。',
@@ -1372,16 +1350,11 @@ client.on('interactionCreate', async interaction => {
           youtube: YOUTUBERS_FILE,
           twitcasting: TWITCASTERS_FILE,
         };
-        const keyId = {
-          twitch: 'twitchId',
-          youtube: 'youtubeId',
-          twitcasting: 'twitcastingId',
-        };
         const list = await dataLoaders[type]();
         const entry = list.find(s => s.discordId === userId);
         if (!entry) {
           return interaction.reply({
-            content: `このDiscordアカウントは${type}にリンクされていません。先に \`/link_${type}\` を使用してください。`,
+            content: `このDiscordアカウントは${type}にリンクされていません。先に \`/link\` を使用してください。`,
             ephemeral: true,
           });
         }
@@ -1394,6 +1367,42 @@ client.on('interactionCreate', async interaction => {
           content: `このサーバーでの${type.charAt(0).toUpperCase() + type.slice(1)}通知を有効化しました。`,
           ephemeral: true,
         });
+      } else if (interaction.commandName === 'link') {
+        const guildId = interaction.guildId;
+        const userId = interaction.user.id;
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`link_twitch_${guildId}_${userId}`)
+            .setLabel('Twitchをリンク')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`link_youtube_${guildId}_${userId}`)
+            .setLabel('YouTubeをリンク')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`link_twitcasting_${guildId}_${userId}`)
+            .setLabel('ツイキャスをリンク')
+            .setStyle(ButtonStyle.Success),
+        );
+
+        try {
+          await interaction.user.send({
+            content: '以下のボタンをクリックして、Twitch, YouTube, またはツイキャスのアカウントをリンクしてください。ボタンはいつでも新しいリンクを生成します。',
+            components: [row],
+          });
+          await interaction.reply({
+            content: 'リンク用のボタンをDMに送信しました。DMを確認してください。',
+            ephemeral: true,
+          });
+        } catch (err) {
+          console.error(`DM送信エラー: ユーザー=${userId}`, err.message);
+          await interaction.reply({
+            content: 'DMを送信できませんでした。以下のボタンを使用してください。',
+            components: [row],
+            ephemeral: true,
+          });
+        }
       }
     } else if (interaction.isModalSubmit()) {
       if (interaction.customId === 'admin_message_modal') {
@@ -1435,87 +1444,30 @@ client.on('interactionCreate', async interaction => {
         });
       }
     } else if (interaction.isButton()) {
-      const [type, , guildId] = interaction.customId.split('_');
-      
-      const oauthUrls = {
-  twitch: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-    DISCORD_CLIENT_ID,
-  )}&redirect_uri=${encodeURIComponent(
-    REDIRECT_URI,
-  )}&response_type=code&scope=identify%20connections&state=twitch_${guildId}`,
-  youtube: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-    DISCORD_CLIENT_ID,
-  )}&redirect_uri=${encodeURIComponent(
-    REDIRECT_URI,
-  )}&response_type=code&scope=identify%20connections&state=youtube_${guildId}`,
-  twitcasting: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-    DISCORD_CLIENT_ID,
-  )}&redirect_uri=${encodeURIComponent(
-    REDIRECT_URI,
-  )}&response_type=code&scope=identify%20connections&state=twitcasting_${guildId}`,
-};
+      if (interaction.customId.startsWith('link_')) {
+        const [_, type, guildId, userId] = interaction.customId.split('_');
+        if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
+          return interaction.reply({
+            content: '無効なボタンです。',
+            ephemeral: true,
+          });
+        }
+        if (guildId !== interaction.guildId || userId !== interaction.user.id) {
+          return interaction.reply({
+            content: 'このボタンはあなたが使用できません。',
+            ephemeral: true,
+          });
+        }
 
-if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
-  return interaction.reply({
-    content: '無効なボタンです。',
-    ephemeral: true,
-  });
-}
+        const redirectUrl = `https://zaronyanbot.com/redirect/${type}/${guildId}/${userId}`;
+        console.log(`Redirecting user for ${type}:`, { url: redirectUrl, userId, guildId });
 
-const guild = client.guilds.cache.get(guildId);
-if (!guild) {
-  return interaction.reply({
-    content: 'サーバーが見つかりません。管理者に連絡してください。',
-    ephemeral: true,
-  });
-}
-
-const settings = await loadServerSettings();
-const roleId = settings.servers[guildId]?.notificationRoles?.[type];
-if (!roleId) {
-  return interaction.reply({
-    content: `${type.charAt(0).toUpperCase() + type.slice(1)}通知ロールが設定されていません。管理者に連絡してください。`,
-    ephemeral: true,
-  });
-}
-
-const member = await guild.members.fetch(interaction.user.id).catch(() => null);
-if (!member) {
-  return interaction.reply({
-    content: 'サーバーメンバー情報が取得できませんでした。管理者に連絡してください。',
-    ephemeral: true,
-  });
-}
-
-const role = await guild.roles.fetch(roleId).catch(() => null);
-if (!role) {
-  return interaction.reply({
-    content: '指定されたロールが存在しません。管理者に連絡してください。',
-    ephemeral: true,
-  });
-}
-
-if (guild.members.me.roles.highest.position <= role.position) {
-  return interaction.reply({
-    content: 'ボットの権限不足によりロールを付与できません。管理者に連絡してください。',
-    ephemeral: true,
-  });
-}
-
-try {
-  await member.roles.add(roleId);
-  await interaction.reply({
-    content: `${type.charAt(0).toUpperCase() + type.slice(1)}通知ロール「${role.name}」を付与しました！\n以下のリンクで${type}アカウントをリンクしてください:\n${oauthUrls[type]}`,
-    ephemeral: true,
-  });
-} catch (err) {
-  console.error(`ロール付与エラー: ユーザー=${interaction.user.id}, ロール=${roleId}, サーバー=${guildId}`, err.message);
-  await interaction.reply({
-    content: 'ロールの付与中にエラーが発生しました。管理者に連絡してください。',
-    ephemeral: true,
-  });
-}
-  }
+        await interaction.reply({
+          content: `以下のリンクをクリックして${type.charAt(0).toUpperCase() + type.slice(1)}アカウントをリンクしてください:\n${redirectUrl}\nこのリンクは自動で新しい認証URLにリダイレクトします。`,
+          ephemeral: true,
+        });
+      }
+    }
   } catch (err) {
     console.error('インタラクション処理エラー:', {
       message: err.message,
