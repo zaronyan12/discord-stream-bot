@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
 const https = require('https');
-// const FormData = require('form-data'); // 未使用のためコメントアウト（必要に応じて復活）
+// const FormData = require('form-data'); // 未使用のためコメントアウト
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // 環境変数
@@ -540,7 +540,6 @@ app.get('/callback', async (req, res) => {
 
       const streamers = await loadStreamers();
       if (streamers.some(s => s.discordId === authUserId)) {
-        // 既存リンクの場合、guildIds に追加
         const streamer = streamers.find(s => s.discordId === authUserId);
         if (!streamer.guildIds) streamer.guildIds = [];
         if (!streamer.guildIds.includes(guildId)) {
@@ -640,18 +639,18 @@ app.get('/callback', async (req, res) => {
       const member = await guild.members.fetch(authUserId).catch(() => null);
       if (!member) {
         console.error(`メンバー取得失敗: ユーザー=${authUserId}, サーバー=${guild.id}`);
-        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、サーバーメンバー情報が取得できないためロールを付与できませんでした。`);
+        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、サーバーメンバー情報が取得できないためロールを付与できませんでした。`);
       }
 
       const role = await guild.roles.fetch(roleId).catch(() => null);
       if (!role) {
         console.error(`ロール取得失敗: ロール=${roleId}, サーバー=${guild.id}`);
-        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、指定されたロールが存在しないためロールを付与できませんでした。`);
+        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、指定されたロールが存在しないためロールを付与できませんでした。`);
       }
 
-      if (guild.members.me.roles.highest.position <= role.position) {
+      if (guild.members.me?.roles.highest.position <= role.position) {
         console.warn(`ロール付与不可: ロール=${roleId} の位置がボットより高い, サーバー=${guild.id}`);
-        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、ボットの権限不足のためロールを付与できませんでした。`);
+        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、ボットの権限不足のためロールを付与できませんでした。`);
       }
 
       await member.roles.add(roleId);
@@ -707,7 +706,7 @@ client.once('ready', async () => {
       ),
     new SlashCommandBuilder()
       .setName('set_mazakari_roles')
-      .setDescription('通知設定ボタンで付与するロールを設定します')
+      .setDescription('通知設定ボタンで付与するロールを設定')
       .addRoleOption(option =>
         option
           .setName('twitch_role')
@@ -728,13 +727,13 @@ client.once('ready', async () => {
       ),
     new SlashCommandBuilder()
       .setName('admin_message')
-      .setDescription('全サーバーの管理者にメッセージを送信します（管理者専用）'),
+      .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
     new SlashCommandBuilder()
       .setName('reload_config')
-      .setDescription('設定ファイルを再読み込みします（管理者専用）'),
+      .setDescription('設定ファイルを再読み込み（管理者専用）'),
     new SlashCommandBuilder()
       .setName('admin')
-      .setDescription('ユーザーにボット製作者権限を付与します（製作者専用）')
+      .setDescription('ユーザーにボット製作者権限を付与（製作者専用）')
       .addUserOption(option =>
         option
           .setName('user')
@@ -743,13 +742,13 @@ client.once('ready', async () => {
       ),
     new SlashCommandBuilder()
       .setName('mazakari')
-      .setDescription('全メンバーに配信通知設定のDMを送信します（製作者専用）'),
+      .setDescription('全メンバーに配信通知設定のDMを送信（管理者専用）'),
     new SlashCommandBuilder()
       .setName('stop_mazakari')
-      .setDescription('Mazakari機能を停止します（製作者専用）'),
+      .setDescription('Mazakari機能を停止（管理者専用）'),
     new SlashCommandBuilder()
       .setName('clear_streams')
-      .setDescription('すべての配信設定を削除します（管理者専用）')
+      .setDescription('すべての配信設定を削除（管理者専用）')
       .addStringOption(option =>
         option
           .setName('exclude')
@@ -758,7 +757,7 @@ client.once('ready', async () => {
       ),
     new SlashCommandBuilder()
       .setName('set_keywords')
-      .setDescription('配信通知のキーワードを設定します')
+      .setDescription('配信通知のキーワードを設定')
       .addStringOption(option =>
         option
           .setName('keywords')
@@ -767,25 +766,28 @@ client.once('ready', async () => {
       ),
     new SlashCommandBuilder()
       .setName('test_message')
-      .setDescription('テストメッセージを送信します'),
+      .setDescription('テストメッセージを送信'),
     new SlashCommandBuilder()
       .setName('clear_keywords')
-      .setDescription('すべての通知キーワードを削除します'),
+      .setDescription('すべての通知キーワードを削除'),
     new SlashCommandBuilder()
       .setName('remember_twitch')
-      .setDescription('このサーバーに対してTwitch通知を有効化します（配信者のみ）'),
+      .setDescription('このサーバーに対してTwitch通知を有効化'),
     new SlashCommandBuilder()
       .setName('remember_youtube')
-      .setDescription('このサーバーに対してYouTube通知を有効化します（配信者のみ）'),
+      .setDescription('このサーバーに対してYouTube通知を有効化'),
     new SlashCommandBuilder()
       .setName('remember_twitcasting')
-      .setDescription('このサーバーに対してツイキャス通知を有効化します（配信者のみ）'),
+      .setDescription('このサーバーに対してツイキャス通知を有効化'),
     new SlashCommandBuilder()
       .setName('link')
-      .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンクします'),
+      .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
   ];
 
   try {
+    // スラッシュコマンドを一旦削除（キャッシュ問題対策）
+    await client.application.commands.set([]);
+    console.log('すべてのスラッシュコマンドを削除しました');
     await client.application.commands.set(commands);
     console.log('スラッシュコマンドを登録しました');
   } catch (err) {
@@ -872,14 +874,16 @@ client.on('messageCreate', async message => {
       new ButtonBuilder()
         .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
         .setLabel('Twitch通知')
-        .setStyle(ButtonStyle.Primary),
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🔴'),
     );
     if (youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit) {
       buttons.push(
         new ButtonBuilder()
           .setCustomId(`link_youtube_${pending.guildId}_${message.author.id}`)
           .setLabel('YouTube通知')
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji('▶️'),
       );
     }
     if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
@@ -887,7 +891,8 @@ client.on('messageCreate', async message => {
         new ButtonBuilder()
           .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
           .setLabel('ツイキャス通知')
-          .setStyle(ButtonStyle.Success),
+          .setStyle(ButtonStyle.Success)
+          .setEmoji('📡'),
       );
     }
 
@@ -902,18 +907,21 @@ client.on('messageCreate', async message => {
         new ButtonBuilder()
           .setCustomId(`link_twitch_${pending.guildId}_${member.id}`)
           .setLabel('Twitch通知')
-          .setStyle(ButtonStyle.Primary),
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji('🔴'),
         youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit
           ? new ButtonBuilder()
               .setCustomId(`link_youtube_${pending.guildId}_${member.id}`)
               .setLabel('YouTube通知')
-              .setStyle(ButtonStyle.Secondary)
+              .setStyle(ButtonStyle.Danger)
+              .setEmoji('▶️')
           : null,
         twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit
           ? new ButtonBuilder()
               .setCustomId(`link_twitcasting_${pending.guildId}_${member.id}`)
               .setLabel('ツイキャス通知')
               .setStyle(ButtonStyle.Success)
+              .setEmoji('📡')
           : null,
       ).addComponents(row.components.filter(c => c));
 
@@ -1007,14 +1015,16 @@ client.on('guildMemberAdd', async member => {
       new ButtonBuilder()
         .setCustomId(`link_twitch_${guildId}_${member.id}`)
         .setLabel('Twitch通知')
-        .setStyle(ButtonStyle.Primary),
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🔴'),
     );
     if (youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit) {
       buttons.push(
         new ButtonBuilder()
           .setCustomId(`link_youtube_${guildId}_${member.id}`)
           .setLabel('YouTube通知')
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji('▶️'),
       );
     }
     if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
@@ -1022,7 +1032,8 @@ client.on('guildMemberAdd', async member => {
         new ButtonBuilder()
           .setCustomId(`link_twitcasting_${guildId}_${member.id}`)
           .setLabel('ツイキャス通知')
-          .setStyle(ButtonStyle.Success),
+          .setStyle(ButtonStyle.Success)
+          .setEmoji('📡'),
       );
     }
 
@@ -1375,34 +1386,25 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder()
             .setCustomId(`link_twitch_${guildId}_${userId}`)
             .setLabel('Twitchをリンク')
-            .setStyle(ButtonStyle.Primary),
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🔴'),
           new ButtonBuilder()
             .setCustomId(`link_youtube_${guildId}_${userId}`)
             .setLabel('YouTubeをリンク')
-            .setStyle(ButtonStyle.Secondary),
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('▶️'),
           new ButtonBuilder()
             .setCustomId(`link_twitcasting_${guildId}_${userId}`)
             .setLabel('ツイキャスをリンク')
-            .setStyle(ButtonStyle.Success),
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📡'),
         );
 
-        try {
-          await interaction.user.send({
-            content: '以下のボタンをクリックして、Twitch, YouTube, またはツイキャスのアカウントをリンクしてください。ボタンはいつでも新しいリンクを生成します。',
-            components: [row],
-          });
-          await interaction.reply({
-            content: 'リンク用のボタンをDMに送信しました。DMを確認してください。',
-            ephemeral: true,
-          });
-        } catch (err) {
-          console.error(`DM送信エラー: ユーザー=${userId}`, err.message);
-          await interaction.reply({
-            content: 'DMを送信できませんでした。以下のボタンを使用してください。',
-            components: [row],
-            ephemeral: true,
-          });
-        }
+        await interaction.reply({
+          content: '以下のボタンをクリックして、Twitch, YouTube, またはツイキャスのアカウントをリンクしてください。',
+          components: [row],
+          ephemeral: false,
+        });
       }
     } else if (interaction.isModalSubmit()) {
       if (interaction.customId === 'admin_message_modal') {
@@ -1452,9 +1454,17 @@ client.on('interactionCreate', async interaction => {
             ephemeral: true,
           });
         }
-        if (guildId !== interaction.guildId || userId !== interaction.user.id) {
+        if (userId !== interaction.user.id) {
+          console.log(`ボタン使用不正: ユーザー=${interaction.user.id}, 期待=${userId}, ボタン=${interaction.customId}`);
           return interaction.reply({
             content: 'このボタンはあなたが使用できません。',
+            ephemeral: true,
+          });
+        }
+        if (!client.guilds.cache.has(guildId)) {
+          console.log(`無効なサーバー: guildId=${guildId}, ボタン=${interaction.customId}`);
+          return interaction.reply({
+            content: 'このボタンは無効なサーバーに関連しています。',
             ephemeral: true,
           });
         }
