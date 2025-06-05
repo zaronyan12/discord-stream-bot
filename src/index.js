@@ -689,8 +689,8 @@ app.get('/callback', async (req, res) => {
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、サーバーが見つからないためロールを付与できませんでした。`);
       }
 
-      const settings = await loadServerSettings();
-      const roleId = guildSettings.servers?.notificationRoles?.[type];
+      const serverSettings = await loadServerSettings();
+      const roleId = serverSettings.servers?.[guildId]?.notificationRoles?.[type];
       if (!roleId) {
         console.warn(`通知ロールが見つかりません: サーバー=${guild.id}, タイプ=${type}`);
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、通知ロールが設定されていないためロールを付与できませんでした。`);
@@ -702,7 +702,7 @@ app.get('/callback', async (req, res) => {
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、サーバーメンバー情報が取得できないためロールを付与できませんでした。`);
       }
 
-      const roleId = await guild.roles.fetch(roleId).catch(() => null);
+      const role = await guild.roles.fetch(roleId).catch(() => null);
       if (!role) {
         console.error(`ロール取得失敗: ロール=${roleId}, サーバー=${guild.id}`);
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、指定されたロールが存在しないためロールを付与できませんでした。`);
@@ -710,7 +710,7 @@ app.get('/callback', async (req, res) => {
 
       if (guild.members.me?.roles.highest.position <= role.position) {
         console.warn(`ロール付与不可: ロール=${roleId} の位置がボットより高い, サーバー=${guild.id}`);
-        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、ボットの権限不足のためロールを付与できませんでした。`));
+        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、ボットの権限不足のためロールを付与できませんでした。`);
       }
 
       await member.roles.add(roleId);
@@ -741,7 +741,7 @@ try {
     stack: err.stack,
   });
   process.exit(1);
-});
+}
 
 // ボット起動時の処理
 client.once('ready', async () => {
