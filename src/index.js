@@ -474,7 +474,6 @@ async function checkTwitCastingStreams() {
     }
   }
 }
-
 // OAuthコールバックエンドポイント
 app.get('/callback', async (req, res) => {
   console.log('Received /callback request:', {
@@ -521,7 +520,7 @@ app.get('/callback', async (req, res) => {
     });
     const authUserId = userResponse.data.id;
 
-    // ...（以降の処理は変更なし。Twitch、YouTube、ツイキャスのアカウントリンク処理）
+    // ...（以降の処理は変更なし。アカウントリンク処理）
     if (type === 'twitch') {
       const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -1440,39 +1439,46 @@ client.on('interactionCreate', async interaction => {
           ephemeral: true,
         });
       }
-    } else if (interaction.isButton()) {
-      if (interaction.customId.startsWith('link_')) {
-        const [_, type, guildId, userId] = interaction.customId.split('_');
-        if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
-          return interaction.reply({
-            content: '無効なボタンです。',
-            ephemeral: true,
-          });
-        }
-        if (userId !== interaction.user.id) {
-          console.log(`ボタン使用不正: ユーザー=${interaction.user.id}, 期待=${userId}, ボタン=${interaction.customId}`);
-          return interaction.reply({
-            content: 'このボタンはあなたが使用できません。',
-            ephemeral: true,
-          });
-        }
-        if (!client.guilds.cache.has(guildId)) {
-          console.log(`無効なサーバー: guildId=${guildId}, ボタン=${interaction.customId}`);
-          return interaction.reply({
-            content: 'このボタンは無効なサーバーに関連しています。',
-            ephemeral: true,
-          });
-        }
-
-        const redirectUrl = `https://zaronyanbot.com/redirect/${type}/${guildId}/${userId}`;
-        console.log(`Redirecting user for ${type}:`, { url: redirectUrl, userId, guildId });
-
-        await interaction.reply({
-          content: `以下のリンクをクリックして${type.charAt(0).toUpperCase() + type.slice(1)}アカウントをリンクしてください:\n${redirectUrl}\nこのリンクは自動で新しい認証URLにリダイレクトします。`,
-          ephemeral: true,
-        });
-      }
+} else if (interaction.isButton()) {
+  if (interaction.customId.startsWith('link_')) {
+    const [_, type, guildId, userId] = interaction.customId.split('_');
+    if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
+      return interaction.reply({
+        content: '無効なボタンです。',
+        ephemeral: true,
+      });
     }
+    if (userId !== interaction.user.id) {
+      console.log(`ボタン使用不正: ユーザー=${interaction.user.id}, 期待=${userId}, ボタン=${interaction.customId}`);
+      return interaction.reply({
+        content: 'このボタンはあなたが使用できません。',
+        ephemeral: true,
+      });
+    }
+    if (!client.guilds.cache.has(guildId)) {
+      console.log(`無効なサーバー: guildId=${guildId}, ボタン=${interaction.customId}`);
+      return interaction.reply({
+        content: 'このボタンは無効なサーバーに関連しています。',
+        ephemeral: true,
+      });
+    }
+
+    // 最終的な OAuth2 URL を生成
+    const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
+      DISCORD_CLIENT_ID
+    )}&redirect_uri=${encodeURIComponent(
+      REDIRECT_URI
+    )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}`;
+    // リダイレクト URL（動作維持のため）
+    const redirectUrl = `https://zaronyanbot.com/redirect/${type}/${guildId}/${userId}`;
+    console.log(`Generated URLs for ${type}:`, { oauthUrl, redirectUrl, guildId, userId, timestamp: new Date().toISOString() });
+
+    await interaction.reply({
+      content: `以下のリンクをクリックして${type.charAt(0).toUpperCase() + type.slice(1)}アカウントをリンクしてください:\n${oauthUrl}\nこのリンクは認証サーバーを経由して処理されます。`,
+      ephemeral: true,
+    });
+  }
+}
   } catch (err) {
     console.error('インタラクション処理エラー:', {
       message: err.message,
