@@ -670,7 +670,7 @@ app.get('/callback', async (req, res) => {
 try {
   const options = {
     key: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
-    cert: fs.readFileSync('/etc/letsencrypt.live/zaronyanbot.com/fullchain.pem'),
+    cert: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
   };
 
   https.createServer(options, app).listen(3001, '0.0.0.0', () => {
