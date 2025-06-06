@@ -307,13 +307,17 @@ app.post('/webhook/youtube', async (req, res) => {
 
     if (video?.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
       for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-        if (!youtuber.guildIds || !youtuber.guildIds.includes(guildId)) continue;
-        if (settings.channelId) {
-          const channel = client.channels.cache.get(settings.channelId);
-          if (channel) {
-            await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
-            console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
+        if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
+        if (settings.keywords && settings.keywords.length > 0) {
+          if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
+            console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
+            continue;
           }
+        }
+        const channel = client.channels.cache.get(settings.channelId);
+        if (channel) {
+          await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
+          console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
         }
       }
       activeStreams.youtube.set(channelId, { videoId, title, notifiedAt: Date.now() });
@@ -522,12 +526,7 @@ app.get('/callback', async (req, res) => {
     const userResponse = await axios.get('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const authUserId = userResponse.data.id;
-
-    // userId が指定されている場合、認証ユーザーが一致するか検証
-    if (userId && authUserId !== userId) {
-      return res.status(403).send('このリンクは別のユーザー向けです。');
-    }
+    const userId = userResponse.data.id;
 
     if (type === 'twitch') {
       const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
@@ -541,20 +540,16 @@ app.get('/callback', async (req, res) => {
       const twitchUsername = twitchConnection.name;
 
       const streamers = await loadStreamers();
-      if (streamers.some(s => s.discordId === authUserId)) {
-        const streamer = streamers.find(s => s.discordId === authUserId);
-        if (!streamer.guildIds) streamer.guildIds = [];
-        if (!streamer.guildIds.includes(guildId)) {
-          streamer.guildIds.push(guildId);
-          await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-        }
-      } else if (streamers.some(s => s.twitchId === twitchId)) {
-        return res.status(400).send('このTwitchアカウントは別のユーザーで登録済みです。');
-      } else {
-        streamers.push({ discordId: authUserId, twitchId, twitchUsername, guildIds: [guildId] });
-        await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-        console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
+      if (streamers.some(s => s.discordId === userId)) {
+        return res.send('Twitchアカウントはすでにリンク済みです。');
       }
+      if (streamers.some(s => s.twitchId === twitchId)) {
+        return res.status(400).send('このTwitchアカウントは別のユーザーで登録済みです。');
+      }
+
+      streamers.push({ discordId: userId, twitchId, twitchUsername });
+      await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+      console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
     } else if (type === 'youtube') {
       const config = await loadConfig();
       const youtubeAccountLimit = config.youtubeAccountLimit || 0;
@@ -574,20 +569,16 @@ app.get('/callback', async (req, res) => {
       const youtubeId = youtubeConnection.id;
       const youtubeUsername = youtubeConnection.name;
 
-      if (youtubers.some(y => y.discordId === authUserId)) {
-        const youtuber = youtubers.find(y => y.discordId === authUserId);
-        if (!youtuber.guildIds) youtuber.guildIds = [];
-        if (!youtuber.guildIds.includes(guildId)) {
-          youtuber.guildIds.push(guildId);
-          await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-        }
-      } else if (youtubers.some(y => y.youtubeId === youtubeId)) {
-        return res.status(400).send('このYouTubeアカウントは別のユーザーで登録済みです。');
-      } else {
-        youtubers.push({ discordId: authUserId, youtubeId, youtubeUsername, guildIds: [guildId] });
-        await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-        console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
+      if (youtubers.some(y => y.discordId === userId)) {
+        return res.send('YouTubeアカウントはすでにリンク済みです。');
       }
+      if (youtubers.some(y => y.youtubeId === youtubeId)) {
+        return res.status(400).send('このYouTubeアカウントは別のユーザーで登録済みです。');
+      }
+
+      youtubers.push({ discordId: userId, youtubeId, youtubeUsername });
+      await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+      console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
     } else if (type === 'twitcasting') {
       const config = await loadConfig();
       const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
@@ -607,20 +598,16 @@ app.get('/callback', async (req, res) => {
       const twitcastingId = twitcastingConnection.id;
       const twitcastingUsername = twitcastingConnection.name;
 
-      if (twitcasters.some(t => t.discordId === authUserId)) {
-        const twitcaster = twitcasters.find(t => t.discordId === authUserId);
-        if (!twitcaster.guildIds) twitcaster.guildIds = [];
-        if (!twitcaster.guildIds.includes(guildId)) {
-          twitcaster.guildIds.push(guildId);
-          await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
-        }
-      } else if (twitcasters.some(t => t.twitcastingId === twitcastingId)) {
-        return res.status(400).send('このツイキャスアカウントは別のユーザーで登録済みです。');
-      } else {
-        twitcasters.push({ discordId: authUserId, twitcastingId, twitcastingUsername, guildIds: [guildId] });
-        await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
-        console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
+      if (twitcasters.some(t => t.discordId === userId)) {
+        return res.send('ツイキャスアカウントはすでにリンク済みです。');
       }
+      if (twitcasters.some(t => t.twitcastingId === twitcastingId)) {
+        return res.status(400).send('このツイキャスアカウントは別のユーザーで登録済みです。');
+      }
+
+      twitcasters.push({ discordId: userId, twitcastingId, twitcastingUsername });
+      await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+      console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
     }
 
     if (guildId) {
@@ -630,26 +617,27 @@ app.get('/callback', async (req, res) => {
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、サーバーが見つからないためロールを付与できませんでした。`);
       }
 
-      const serverSettings = await loadServerSettings();
-      const roleId = serverSettings.servers?.[guildId]?.notificationRoles?.[type];
+      const settings = await loadServerSettings();
+      const guildSettings = settings.servers[guildId];
+      const roleId = guildSettings?.notificationRoles?.[type];
       if (!roleId) {
         console.warn(`通知ロールが見つかりません: サーバー=${guild.id}, タイプ=${type}`);
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、通知ロールが設定されていないためロールを付与できませんでした。`);
       }
 
-      const member = await guild.members.fetch(authUserId).catch(() => null);
+      const member = await guild.members.fetch(userId).catch(() => null);
       if (!member) {
-        console.error(`メンバー取得失敗: ユーザー=${authUserId}, サーバー=${guild.id}`);
-        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、サーバーメンバー情報が取得できないためロールを付与できませんでした。`);
+        console.error(`メンバー取得失敗: ユーザー=${userId}, サーバー=${guild.id}`);
+        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、サーバーメンバー情報が取得できないためロールを付与できませんでした。`);
       }
 
       const role = await guild.roles.fetch(roleId).catch(() => null);
       if (!role) {
         console.error(`ロール取得失敗: ロール=${roleId}, サーバー=${guild.id}`);
-        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクしましたが、指定されたロールが存在しないためロールを付与できませんでした。`);
+        return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、指定されたロールが存在しないためロールを付与できませんでした。`);
       }
 
-      if (guild.members.me?.roles.highest.position <= role.position) {
+      if (guild.members.me.roles.highest.position <= role.position) {
         console.warn(`ロール付与不可: ロール=${roleId} の位置がボットより高い, サーバー=${guild.id}`);
         return res.send(`${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはリンクされましたが、ボットの権限不足のためロールを付与できませんでした。`);
       }
@@ -1110,7 +1098,7 @@ client.on('interactionCreate', async interaction => {
           notificationRoles: serverSettings.servers[interaction.guild.id]?.notificationRoles || {},
           keywords: serverSettings.servers[interaction.guild.id]?.keywords || [],
         };
-        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `配信通知設定を保存しました。\nチャンネル: ${channel}\nライブロール: ${liveRole}`,
           ephemeral: false,
@@ -1135,7 +1123,7 @@ client.on('interactionCreate', async interaction => {
             twitcasting: twitcastingRole.id,
           },
         };
-        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `通知ロールを設定しました。\nTwitch: ${twitchRole}\nYouTube: ${youtubeRole}\nツイキャス: ${twitcastingRole}`,
           ephemeral: true,
@@ -1253,7 +1241,7 @@ client.on('interactionCreate', async interaction => {
 
         mazakari.enabled[interaction.guild.id] = false;
         delete mazakari.guilds[interaction.guild.id];
-        await fsPromises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
+        await fs.Promises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
         await interaction.reply({
           content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
           ephemeral: true,
@@ -1276,9 +1264,9 @@ client.on('interactionCreate', async interaction => {
         twitcasters = twitcasters.filter(t => exclude.includes(t.discordId));
 
         try {
-          await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-          await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-          await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+          await fs.Promises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+          await fs.Promises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+          await fs.Promises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
 
           await interaction.reply({
             content: `配信設定を削除しました。\n` +
@@ -1309,7 +1297,7 @@ client.on('interactionCreate', async interaction => {
           ...serverSettings.servers[interaction.guild.id],
           keywords,
         };
-        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `キーワードを設定しました: ${keywords.join(', ')}`,
           ephemeral: true,
@@ -1458,11 +1446,23 @@ client.on('interactionCreate', async interaction => {
           });
         }
 
-        const redirectUrl = `https://zaronyanbot.com/redirect/${type}/${guildId}/${userId}`;
-        console.log(`Redirecting user for ${type}:`, { url: redirectUrl, userId, guildId });
+      const oauthUrls = {
+        twitch: {
+          id: 'twitch',
+          oauthUrl: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=twitch_${guildId}`,
+        },
+        youtube: {
+          id: 'youtube',
+          oauthUrl: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=youtube_${guildId}`,
+        },
+        twitcasting: {
+          id: 'twitcasting',
+          oauthUrl: `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20connections&state=twitcasting_${guildId}`,
+        },
+      };
 
         await interaction.reply({
-          content: `以下のリンクをクリックして${type.charAt(0).toUpperCase() + type.slice(1)}アカウントをリンクしてください:\n${redirectUrl}\nこのリンクは自動で新しい認証URLにリダイレクトします。`,
+          content: `以下のリンクをクリックして${type.charAt(0).toUpperCase() + type.slice(1)}アカウントをリンクしてください:\n${oauthUrls}\nこのリンクは自動で新しい認証URLにリダイレクトします。`,
           ephemeral: true,
         });
       }
