@@ -526,7 +526,7 @@ app.get('/callback', async (req, res) => {
     const userResponse = await axios.get('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const userId = userResponse.data.id;
+    //const userId = userResponse.data.id;
 
     if (type === 'twitch') {
       const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
