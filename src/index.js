@@ -84,7 +84,7 @@ app.get('/redirect/:type/:guildId/:userId', async (req, res) => {
     DISCORD_CLIENT_ID,
   )}&redirect_uri=${encodeURIComponent(
     REDIRECT_URI,
-  )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}_${userId}`;
+  )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}`;
   console.log(`Generated OAuth URL for ${type}:`, {
     url: oauthUrl,
     guildId,
@@ -492,16 +492,9 @@ app.get('/callback', async (req, res) => {
   }
 
   try {
-    let type, guildId, userId;
+    let type, guildId;
     if (state.includes('_')) {
-      const parts = state.split('_');
-      if (parts.length === 3) {
-        [type, guildId, userId] = parts;
-      } else if (parts.length === 2) {
-        [type, guildId] = parts;
-      } else {
-        return res.status(400).send('無効な状態パラメータです。');
-      }
+      [type, guildId] = state.split('_');
       if (!['twitch', 'youtube', 'twitcasting'].includes(type)) {
         return res.status(400).send('無効な状態パラメータです。');
       }
@@ -528,11 +521,7 @@ app.get('/callback', async (req, res) => {
     });
     const authUserId = userResponse.data.id;
 
-    // userId が指定されている場合、認証ユーザーが一致するか検証
-    if (userId && authUserId !== userId) {
-      return res.status(403).send('このリンクは別のユーザー向けです。');
-    }
-
+    // ...（以降の処理は変更なし。Twitch、YouTube、ツイキャスのアカウントリンク処理）
     if (type === 'twitch') {
       const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
         headers: { Authorization: `Bearer ${accessToken}` },
