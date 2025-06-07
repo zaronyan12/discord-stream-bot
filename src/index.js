@@ -4,7 +4,7 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
-const fsPromises = require('fs').promises;
+const fs.Promises = require('fs').promises;
 const https = require('https');
 // const FormData = require('form-data'); // 未使用のためコメントアウト
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
@@ -75,7 +75,7 @@ async function loadConfig(force = false) {
   }
   try {
     console.log('config.jsonを読み込む:', CONFIG_FILE);
-    const data = await fsPromises.readFile(CONFIG_FILE, 'utf8');
+    const data = await fs.Promises.readFile(CONFIG_FILE, 'utf8');
     configCache = JSON.parse(data);
     console.log('config.json読み込み成功');
     return configCache;
@@ -94,7 +94,7 @@ async function loadStreamers(force = false) {
   }
   try {
     console.log('streamers.jsonを読み込み中:', STREAMERS_FILE);
-    const data = await fsPromises.readFile(STREAMERS_FILE, 'utf8');
+    const data = await fs.Promises.readFile(STREAMERS_FILE, 'utf8');
     streamersCache = JSON.parse(data);
     console.log('streamers.json読み込み成功');
     return streamersCache;
@@ -113,7 +113,7 @@ async function loadYoutubers(force = false) {
   }
   try {
     console.log('youtubers.jsonを読み込み中:', YOUTUBERS_FILE);
-    const data = await fsPromises.readFile(YOUTUBERS_FILE, 'utf8');
+    const data = await fs.Promises.readFile(YOUTUBERS_FILE, 'utf8');
     youtubersCache = JSON.parse(data).map(y => ({ ...y, guildIds: y.guildIds || [] }));
     console.log('youtubers.json読み込み成功');
     return youtubersCache;
@@ -132,7 +132,7 @@ async function loadTwitcasters(force = false) {
   }
   try {
     console.log('twitcasters.jsonを読み込み中:', TWITCASTERS_FILE);
-    const data = await fsPromises.readFile(TWITCASTERS_FILE, 'utf8');
+    const data = await fs.Promises.readFile(TWITCASTERS_FILE, 'utf8');
     twitcastersCache = JSON.parse(data);
     console.log('twitcasters.json読み込み成功');
     return twitcastersCache;
@@ -151,7 +151,7 @@ async function loadServerSettings(force = false) {
   }
   try {
     console.log('serverSettings.jsonを読み込み中:', SERVER_SETTINGS_FILE);
-    const data = await fsPromises.readFile(SERVER_SETTINGS_FILE, 'utf8');
+    const data = await fs.Promises.readFile(SERVER_SETTINGS_FILE, 'utf8');
     serverSettingsCache = JSON.parse(data);
     console.log('serverSettings.json読み込み成功');
     return serverSettingsCache;
@@ -170,7 +170,7 @@ async function loadAdmins(force = false) {
   }
   try {
     console.log('admins.jsonを読み込み中:', ADMINS_FILE);
-    const data = await fsPromises.readFile(ADMINS_FILE, 'utf8');
+    const data = await fs.Promises.readFile(ADMINS_FILE, 'utf8');
     adminsCache = JSON.parse(data);
     console.log('admins.json読み込み成功');
     return adminsCache;
@@ -189,7 +189,7 @@ async function loadMazakari(force = false) {
   }
   try {
     console.log('mazakari.jsonを読み込み中:', MAZAKARI_FILE);
-    const data = await fsPromises.readFile(MAZAKARI_FILE, 'utf8');
+    const data = await fs.Promises.readFile(MAZAKARI_FILE, 'utf8');
     mazakariCache = JSON.parse(data);
     console.log('mazakari.json読み込み成功');
     return mazakariCache;
@@ -208,7 +208,7 @@ async function loadCreators(force = false) {
   }
   try {
     console.log('creators.jsonを読み込み中:', CREATORS_FILE);
-    const data = await fsPromises.readFile(CREATORS_FILE, 'utf8');
+    const data = await fs.Promises.readFile(CREATORS_FILE, 'utf8');
     const parsedData = JSON.parse(data);
     if (!parsedData.creators || !Array.isArray(parsedData.creators)) {
       console.warn('creators.jsonにcreators配列がありません。デフォルトを設定します。');
@@ -232,7 +232,7 @@ async function saveCreators(creators) {
   try {
     console.log('creators.jsonを保存中:', CREATORS_FILE);
     creatorsCache = creators && Array.isArray(creators.creators) ? creators : { creators: [BOT_CREATOR_ID] };
-    await fsPromises.writeFile(CREATORS_FILE, JSON.stringify(creatorsCache, null, 2));
+    await fs.Promises.writeFile(CREATORS_FILE, JSON.stringify(creatorsCache, null, 2));
     console.log('creators.json保存成功');
   } catch (err) {
     console.error('製作者リスト保存エラー:', err.message);
@@ -515,14 +515,14 @@ app.get('/callback', async (req, res) => {
         if (!streamer.guildIds) streamer.guildIds = [];
         if (!streamer.guildIds.includes(guildId)) {
           streamer.guildIds.push(guildId);
-          await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+          await fs.Promises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
         }
       } else if (streamers.some(s => s.twitchId === twitchId)) {
         console.error(`Twitchアカウント重複: twitchId=${twitchId}`);
         return res.status(400).send('このTwitchアカウントは別のユーザーで登録済みです。');
       } else {
         streamers.push({ discordId: authUserId, twitchId, twitchUsername, guildIds: [guildId] });
-        await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+        await fs.Promises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
         console.log(`Twitchアカウントをリンク: ${twitchUsername} (ID: ${twitchId})`);
       }
     } else if (type === 'youtube') {
@@ -551,14 +551,14 @@ app.get('/callback', async (req, res) => {
         if (!youtuber.guildIds) youtuber.guildIds = [];
         if (!youtuber.guildIds.includes(guildId)) {
           youtuber.guildIds.push(guildId);
-          await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+          await fs.Promises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
         }
       } else if (youtubers.some(y => y.youtubeId === youtubeId)) {
         console.error(`YouTubeアカウント重複: youtubeId=${youtubeId}`);
         return res.status(400).send('このYouTubeアカウントは別のユーザーで登録済みです。');
       } else {
         youtubers.push({ discordId: authUserId, youtubeId, youtubeUsername, guildIds: [guildId] });
-        await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+        await fs.Promises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
         console.log(`YouTubeアカウントをリンク: ${youtubeUsername} (ID: ${youtubeId})`);
       }
     } else if (type === 'twitcasting') {
@@ -587,14 +587,14 @@ app.get('/callback', async (req, res) => {
         if (!twitcaster.guildIds) twitcaster.guildIds = [];
         if (!twitcaster.guildIds.includes(guildId)) {
           twitcaster.guildIds.push(guildId);
-          await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+          await fs.Promises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
         }
       } else if (twitcasters.some(t => t.twitcastingId === twitcastingId)) {
         console.error(`ツイキャスアカウント重複: twitcastingId=${twitcastingId}`);
         return res.status(400).send('このツイキャスアカウントは別のユーザーで登録済みです。');
       } else {
         twitcasters.push({ discordId: authUserId, twitcastingId, twitcastingUsername, guildIds: [guildId] });
-        await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+        await fs.Promises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
         console.log(`ツイキャスアカウントをリンク: ${twitcastingUsername} (ID: ${twitcastingId})`);
       }
     }
@@ -952,7 +952,7 @@ client.on('messageCreate', async message => {
     const mazakari = await loadMazakari();
     mazakari.enabled[pending.guildId] = true;
     mazakari.guilds[pending.guildId] = { message: messageContent };
-    await fsPromises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
+    await fs.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
     await message.reply({
       content: `メッセージ送信を試みました。\n成功: ${successCount} メンバー\nDM失敗（チャンネル作成）: ${failCount} メンバー`,
       ephemeral: true,
@@ -1099,7 +1099,7 @@ client.on('interactionCreate', async interaction => {
           notificationRoles: serverSettings.servers[interaction.guild.id]?.notificationRoles || {},
           keywords: serverSettings.servers[interaction.guild.id]?.keywords || [],
         };
-        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `配信通知設定を保存しました。\nチャンネル: ${channel}\nライブロール: ${liveRole}`,
           ephemeral: false,
@@ -1124,7 +1124,7 @@ client.on('interactionCreate', async interaction => {
             twitcasting: twitcastingRole.id,
           },
         };
-        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `通知ロールを設定しました。\nTwitch: ${twitchRole}\nYouTube: ${youtubeRole}\nツイキャス: ${twitcastingRole}`,
           ephemeral: true,
@@ -1136,6 +1136,7 @@ client.on('interactionCreate', async interaction => {
             ephemeral: true,
           });
         }
+
         const modal = new ModalBuilder()
           .setCustomId('admin_message_modal')
           .setTitle('管理者メッセージ送信');
@@ -1162,6 +1163,7 @@ client.on('interactionCreate', async interaction => {
             ephemeral: true,
           });
         }
+
         await loadConfig(true);
         await loadStreamers(true);
         await loadYoutubers(true);
@@ -1242,7 +1244,7 @@ client.on('interactionCreate', async interaction => {
 
         mazakari.enabled[interaction.guild.id] = false;
         delete mazakari.guilds[interaction.guild.id];
-        await fs.Promises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
+        await fs.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
         await interaction.reply({
           content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
           ephemeral: true,
@@ -1265,9 +1267,9 @@ client.on('interactionCreate', async interaction => {
         twitcasters = twitcasters.filter(t => exclude.includes(t.discordId));
 
         try {
-          await fs.Promises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-          await fs.Promises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-          await fs.Promises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+          await fs.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+          await fs.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+          await fs.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
 
           await interaction.reply({
             content: `配信設定を削除しました。\n` +
@@ -1298,7 +1300,7 @@ client.on('interactionCreate', async interaction => {
           ...serverSettings.servers[interaction.guild.id],
           keywords,
         };
-        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: `キーワードを設定しました: ${keywords.join(', ')}`,
           ephemeral: true,
@@ -1320,7 +1322,7 @@ client.on('interactionCreate', async interaction => {
           ...serverSettings.servers[interaction.guild.id],
           keywords: [],
         };
-        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+        await fs.Promises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
         await interaction.reply({
           content: 'キーワードをすべて削除しました。',
           ephemeral: true,
@@ -1350,7 +1352,7 @@ client.on('interactionCreate', async interaction => {
         if (!entry.guildIds) entry.guildIds = [];
         if (!entry.guildIds.includes(guildId)) {
           entry.guildIds.push(guildId);
-          await fsPromises.writeFile(filePaths[type], JSON.stringify(list, null, 2));
+          await fs.Promises.writeFile(filePaths[type], JSON.stringify(list, null, 2));
         }
         await interaction.reply({
           content: `このサーバーでの${type.charAt(0).toUpperCase() + type.slice(1)}通知を有効化しました。`,
