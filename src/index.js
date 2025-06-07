@@ -800,7 +800,7 @@ client.once('ready', async () => {
       await registerCommandsWithRetry(guildId);
     }
     // グローバルコマンドも登録（必要に応じてコメントアウト）
-    await registerCommandsWithRetry();
+    //await registerCommandsWithRetry();
 
     // 設定ファイルの初期化確認
     await loadServerSettings(true);
