@@ -6,7 +6,6 @@ const path = require('path');
 const fs = require('fs'); // 
 const fsPromises = require('fs').promises;
 const https = require('https');
-// const FormData = require('form-data'); // 未使用のためコメントアウト
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // 環境変数
@@ -764,6 +763,7 @@ client.once('ready', async () => {
 
   try {
     // スラッシュコマンドを一旦削除（キャッシュ問題対策）
+    await client.application.fetch(); 
     await client.application.commands.set([]);
     console.log('すべてのスラッシュコマンドを削除しました');
     await client.application.commands.set(commands);
