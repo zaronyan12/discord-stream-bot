@@ -898,6 +898,75 @@ lient.on('messageCreate', async message => {
     const twitcasters = await loadTwitcasters();
 
     const baseButtons = [
+client.on('messageCreate', async message => {
+  if (message.author.bot || message.channel.type === ChannelType.DM) return;
+
+  const pending = pendingMazakari.get(message.author.id);
+  if (!pending || pending.channelId !== message.channel.id) return;
+
+  if (!message.attachments.size) {
+    await message.reply({
+      content: '添付ファイルがありません。`.txt`ファイルを添付してください。',
+      flags: [4096],
+    });
+    return;
+  }
+
+  const attachment = message.attachments.first();
+  if (!attachment.name.endsWith('.txt')) {
+    await message.reply({
+      content: '添付ファイルは`.txt`形式である必要があります。',
+      flags: [4096],
+    });
+    return;
+  }
+
+  try {
+    // ファイル内容の取得（バイナリとして取得し、UTF-8に変換）
+    const response = await axios.get(attachment.url, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+    });
+    const buffer = Buffer.from(response.data);
+    const messageContent = iconv.decode(buffer, 'utf-8');
+
+    // ファイル内容の検証
+    if (!messageContent || messageContent.trim().length === 0) {
+      await message.reply({
+        content: '添付ファイルが空です。有効なテキストを記載してください。',
+        flags: [4096],
+      });
+      pendingMazakari.delete(message.author.id);
+      return;
+    }
+
+    if (messageContent.length > 2000) {
+      await message.reply({
+        content: 'ファイルの内容が2000文字を超えています。短くしてください。',
+        flags: [4096],
+      });
+      pendingMazakari.delete(message.author.id);
+      return;
+    }
+
+    pendingMazakari.delete(message.author.id);
+
+    const guild = client.guilds.cache.get(pending.guildId);
+    if (!guild) {
+      await message.reply({
+        content: 'サーバーが見つかりません。管理者に連絡してください。',
+        flags: [4096],
+      });
+      return;
+    }
+
+    const config = await loadConfig();
+    const youtubeAccountLimit = config.youtubeAccountLimit || 0;
+    const twitcastingAccountLimit = config.twitcastingAccountLimit || 25;
+    const youtubers = await loadYoutubers();
+    const twitcasters = await loadTwitcasters();
+
+    const baseButtons = [
       new ButtonBuilder()
         .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
         .setLabel('Twitch通知')
