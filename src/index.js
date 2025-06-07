@@ -2,6 +2,7 @@
 const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, TextInputBuilder, TextInputStyle, ModalBuilder, ChannelType } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
+const iconv = require('iconv-lite'); 
 const path = require('path');
 const fs = require('fs'); // 
 const fsPromises = require('fs').promises;
@@ -761,25 +762,51 @@ client.once('ready', async () => {
       .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
   ];
 
-try {
-    // コマンド登録前に既存のコマンドをクリア
-    await client.application.commands.set([]).then(() => {
-      console.log('すべてのスラッシュコマンドを削除しました');
-    });
-    
-    // 少し待機してレート制限を回避
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // 新しいコマンドを登録
-    await client.application.commands.set(commands).then(() => {
-      console.log('スラッシュコマンドを登録しました');
-    });
-  } catch (err) {
-    console.error('スラッシュコマンド登録エラー:', {
-      message: err.message,
-      stack: err.stack,
-    });
+async function registerCommandsWithRetry(guildId = null, attempts = 5, delay = 3000) {
+  const target = guildId ? client.guilds.cache.get(guildId) : client.application;
+  if (!target) {
+    console.error('コマンド登録先が見つかりません:', { guildId });
+    return false;
   }
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      console.log(`スラッシュコマンド登録試行 ${i + 1}/${attempts} (対象: ${guildId || 'グローバル'})`);
+      await target.commands.set([]);
+      console.log(`すべてのスラッシュコマンドを削除しました (対象: ${guildId || 'グローバル'})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      await target.commands.set(commands);
+      console.log(`スラッシュコマンドを登録しました (対象: ${guildId || 'グローバル'})`);
+      return true;
+    } catch (err) {
+      console.error(`スラッシュコマンド登録試行 ${i + 1} 失敗:`, {
+        message: err.message,
+        stack: err.stack,
+        guildId,
+      });
+      if (i < attempts - 1) {
+        console.log(`再試行します (${i + 2}/${attempts})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  console.error(`スラッシュコマンド登録に最終的に失敗しました (対象: ${guildId || 'グローバル'})`);
+  return false;
+}
+
+try {
+  // すべてのギルドに対してコマンドを登録
+  const guildIds = client.guilds.cache.map(guild => guild.id);
+  for (const guildId of guildIds) {
+    await registerCommandsWithRetry(guildId);
+  }
+  // グローバルコマンドも登録（必要に応じてコメントアウト）
+  await registerCommandsWithRetry();
+} catch (err) {
+  console.error('スラッシュコマンド登録エラー:', {
+    message: err.message,
+    stack: err.stack,
+  });
 
   // 設定ファイルの初期化確認
   try {
@@ -802,8 +829,7 @@ try {
   checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err.message));
 });
 
-// メッセージリスナー（/mazakari用）
-client.on('messageCreate', async message => {
+lient.on('messageCreate', async message => {
   if (message.author.bot || message.channel.type === ChannelType.DM) return;
 
   const pending = pendingMazakari.get(message.author.id);
@@ -812,7 +838,7 @@ client.on('messageCreate', async message => {
   if (!message.attachments.size) {
     await message.reply({
       content: '添付ファイルがありません。`.txt`ファイルを添付してください。',
-      ephemeral: true,
+      flags: [4096],
     });
     return;
   }
@@ -821,19 +847,34 @@ client.on('messageCreate', async message => {
   if (!attachment.name.endsWith('.txt')) {
     await message.reply({
       content: '添付ファイルは`.txt`形式である必要があります。',
-      ephemeral: true,
+      flags: [4096],
     });
     return;
   }
 
   try {
-    const response = await axios.get(attachment.url, { responseType: 'text' });
-    const messageContent = response.data;
+    // ファイル内容の取得（バイナリとして取得し、UTF-8に変換）
+    const response = await axios.get(attachment.url, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+    });
+    const buffer = Buffer.from(response.data);
+    const messageContent = iconv.decode(buffer, 'utf-8');
+
+    // ファイル内容の検証
+    if (!messageContent || messageContent.trim().length === 0) {
+      await message.reply({
+        content: '添付ファイルが空です。有効なテキストを記載してください。',
+        flags: [4096],
+      });
+      pendingMazakari.delete(message.author.id);
+      return;
+    }
 
     if (messageContent.length > 2000) {
       await message.reply({
         content: 'ファイルの内容が2000文字を超えています。短くしてください。',
-        ephemeral: true,
+        flags: [4096],
       });
       pendingMazakari.delete(message.author.id);
       return;
@@ -845,7 +886,7 @@ client.on('messageCreate', async message => {
     if (!guild) {
       await message.reply({
         content: 'サーバーが見つかりません。管理者に連絡してください。',
-        ephemeral: true,
+        flags: [4096],
       });
       return;
     }
@@ -856,52 +897,55 @@ client.on('messageCreate', async message => {
     const youtubers = await loadYoutubers();
     const twitcasters = await loadTwitcasters();
 
-const baseButtons = [
-  new ButtonBuilder()
-    .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
-    .setLabel('Twitch通知')
-    .setStyle(ButtonStyle.Primary)
-    .setEmoji('🔴'),
-  ...(youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit
-    ? [
-        new ButtonBuilder()
-          .setCustomId(`link_youtube_${pending.guildId}_${message.author.id}`)
-          .setLabel('YouTube通知')
-          .setStyle(ButtonStyle.Danger)
-          .setEmoji('▶️'),
-      ]
-    : []),
-  ...(twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit
-    ? [
-        new ButtonBuilder()
-          .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
-          .setLabel('ツイキャス通知')
-          .setStyle(ButtonStyle.Success)
-          .setEmoji('📡'),
-      ]
-    : []),
-];
+    const baseButtons = [
+      new ButtonBuilder()
+        .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
+        .setLabel('Twitch通知')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🔴'),
+      ...(youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit
+        ? [
+            new ButtonBuilder()
+              .setCustomId(`link_youtube_${pending.guildId}_${message.author.id}`)
+              .setLabel('YouTube通知')
+              .setStyle(ButtonStyle.Danger)
+              .setEmoji('▶️'),
+          ]
+        : []),
+      ...(twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit
+        ? [
+            new ButtonBuilder()
+              .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
+              .setLabel('ツイキャス通知')
+              .setStyle(ButtonStyle.Success)
+              .setEmoji('📡'),
+          ]
+        : []),
+    ];
 
-const members = await guild.members.fetch();
-let successCount = 0;
-let failCount = 0;
+    const members = await guild.members.fetch();
+    let successCount = 0;
+    let failCount = 0;
 
-for (const member of members.values()) {
-  if (member.user.bot) continue;
-  const memberRow = new ActionRowBuilder().addComponents(
-    baseButtons.map(button =>
-      ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id)),
-    ),
-  );
+    for (const member of members.values()) {
+      if (member.user.bot) continue;
+      const memberRow = new ActionRowBuilder().addComponents(
+        baseButtons.map(button =>
+          ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id)),
+        ),
+      );
 
       try {
         await member.send({ content: messageContent, components: [memberRow] });
         successCount++;
       } catch (err) {
-        console.error(`メンバー ${member.id} へのDM失敗:`, err.message);
+        console.error(`メンバー ${member.id} へのDM失敗:`, {
+          message: err.message,
+          stack: err.stack,
+        });
         try {
           const botMember = guild.members.me;
-          if (!guild.channels.cache.some(channel => 
+          if (!guild.channels.cache.some(channel =>
             channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) {
             failCount++;
             continue;
@@ -927,14 +971,16 @@ for (const member of members.values()) {
               },
             ],
           });
-          const sentMessage = await channel.send({
+          await channel.send({
             content: `${member} ${messageContent}`,
             components: [memberRow],
           });
-          sentMessage.channelId = channel.id;
           successCount++;
         } catch (createErr) {
-          console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, createErr.message);
+          console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, {
+            message: createErr.message,
+            stack: createErr.stack,
+          });
           failCount++;
         }
       }
@@ -943,21 +989,27 @@ for (const member of members.values()) {
     const mazakari = await loadMazakari();
     mazakari.enabled[pending.guildId] = true;
     mazakari.guilds[pending.guildId] = { message: messageContent };
-    await fs.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
+    await fsPromises.writeFile(MAZAKARI_FILE, JSON.stringify(mazakari, null, 2));
     await message.reply({
       content: `メッセージ送信を試みました。\n成功: ${successCount} メンバー\nDM失敗（チャンネル作成）: ${failCount} メンバー`,
-      ephemeral: true,
+      flags: [4096],
     });
   } catch (err) {
-    console.error('ファイル処理エラー:', err.message);
+    console.error('ファイル処理エラー:', {
+      message: err.message,
+      stack: err.stack,
+      attachmentUrl: attachment.url,
+      attachmentSize: attachment.size,
+      userId: message.author.id,
+      guildId: pending.guildId,
+    });
     await message.reply({
-      content: 'ファイルの読み込みに失敗しました。もう一度試してください。',
-      ephemeral: true,
+      content: `ファイル処理中にエラーが発生しました: ${err.message}\nもう一度試してください。`,
+      flags: [4096],
     });
     pendingMazakari.delete(message.author.id);
   }
 });
-
 // 新規メンバーへの自動DM送信
 client.on('guildMemberAdd', async member => {
   if (member.user.bot) return;
