@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
 const https = require('https');
+const crypto = require('crypto');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // 環境変数
@@ -260,8 +261,31 @@ async function getTwitchAccessToken() {
 // Webhookサーバーからのリクエストを受け取るエンドポイント
 app.post('/webhook/youtube', async (req, res) => {
   try {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    if (clientIp !== '::1' && clientIp !== '127.0.0.1') {
+      console.warn('不正な送信元IP:', { clientIp, body: req.body });
+      return res.status(200).end();
+    }
+
     const { channelId, videoId, title } = req.body;
-    console.log(`Webhookサーバーから通知受信: ${title} (https://www.youtube.com/watch?v=${videoId})`);
+    if (!channelId || !videoId || !title || typeof channelId !== 'string' || typeof videoId !== 'string' || typeof title !== 'string') {
+      console.warn('無効なWebhookデータ受信:', {
+        channelId,
+        videoId,
+        title,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(200).end();
+    }
+
+    console.log('Webhookサーバーから通知受信:', {
+      title,
+      videoId,
+      channelId,
+      clientIp,
+      headers: req.headers,
+      timestamp: new Date().toISOString(),
+    });
 
     const youtubers = await loadYoutubers();
     const youtuber = youtubers.find(y => y.youtubeId === channelId);
@@ -270,16 +294,43 @@ app.post('/webhook/youtube', async (req, res) => {
       return res.status(200).end();
     }
 
-    // ライブ配信確認（1クォータ）
-    const videoResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-      params: { part: 'liveStreamingDetails,snippet', id: videoId, key: YOUTUBE_API_KEY },
-    });
-    const video = videoResponse.data.items?.[0];
+    let video;
+    try {
+      const videoResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+        params: { part: 'liveStreamingDetails,snippet', id: videoId, key: YOUTUBE_API_KEY },
+        timeout: 5000,
+      });
+      video = videoResponse.data.items?.[0];
+      if (!video) {
+        console.warn(`動画データが見つかりません: videoId=${videoId}`);
+        return res.status(200).end();
+      }
+    } catch (apiErr) {
+      console.error('YouTube APIエラー:', {
+        message: apiErr.message,
+        status: apiErr.response?.status,
+        data: apiErr.response?.data,
+        videoId,
+        channelId,
+      });
+      return res.status(200).end();
+    }
+
     const serverSettings = await loadServerSettings();
 
-    if (video?.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
+    if (video.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
+      const cachedStream = activeStreams.youtube.get(channelId);
+      if (cachedStream && cachedStream.videoId === videoId && cachedStream.title === title) {
+        console.log(`重複通知をスキップ: ${youtuber.youtubeUsername}, videoId=${videoId}`);
+        return res.status(200).end();
+      }
+
+      const sendPromises = [];
       for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-        if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
+        if (!settings.channelId || !settings.notificationRoles?.youtube) {
+          console.log(`通知設定なし: サーバー=${guildId}`);
+          continue;
+        }
         if (settings.keywords && settings.keywords.length > 0) {
           if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
             console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
@@ -287,25 +338,34 @@ app.post('/webhook/youtube', async (req, res) => {
           }
         }
         const channel = client.channels.cache.get(settings.channelId);
-        if (channel) {
-          await channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`);
-          console.log(`YouTube通知送信: ${youtuber.youtubeUsername}, サーバー=${guildId}`);
+        if (!channel) {
+          console.warn(`チャンネルが見つかりません: channelId=${settings.channelId}, サーバー=${guildId}`);
+          continue;
         }
+        sendPromises.push(
+          channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`)
+            .then(() => console.log(`YouTube通知送信成功: ${youtuber.youtubeUsername}, サーバー=${guildId}`))
+            .catch(err => console.error(`通知送信エラー: サーバー=${guildId}`, { message: err.message }))
+        );
       }
+      await Promise.all(sendPromises);
       activeStreams.youtube.set(channelId, { videoId, title, notifiedAt: Date.now() });
-    } else if (video?.liveStreamingDetails?.actualEndTime) {
+    } else if (video.liveStreamingDetails?.actualEndTime) {
       activeStreams.youtube.delete(channelId);
-      console.log(`ライブ配信終了: ${youtuber.youtubeUsername}`);
+      console.log(`ライブ配信終了: ${youtuber.youtubeUsername}, videoId=${videoId}`);
+    } else {
+      console.log(`非ライブ動画: ${youtuber.youtubeUsername}, videoId=${videoId}`);
     }
 
     res.status(200).end();
   } catch (err) {
     console.error('Webhook処理エラー:', {
       message: err.message,
-      status: err.response?.status,
-      data: err.response?.data,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
     });
-    res.status(500).end();
+    res.status(200).end();
   }
 });
 
