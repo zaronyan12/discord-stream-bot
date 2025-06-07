@@ -296,7 +296,7 @@ app.post('/webhook/youtube', async (req, res) => {
 
     let video;
     try {
-      const videoResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+      const videoResponse = await axios.get('://www.googleapis.com/youtube/v3/videos', {
         params: { part: 'liveStreamingDetails,snippet', id: videoId, key: YOUTUBE_API_KEY },
         timeout: 5000,
       });
@@ -343,7 +343,7 @@ app.post('/webhook/youtube', async (req, res) => {
           continue;
         }
         sendPromises.push(
-          channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`)
+          channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\n://www.youtube.com/watch?v=${videoId}`)
             .then(() => console.log(`YouTube通知送信成功: ${youtuber.youtubeUsername}, サーバー=${guildId}`))
             .catch(err => console.error(`通知送信エラー: サーバー=${guildId}`, { message: err.message }))
         );
@@ -374,8 +374,8 @@ async function renewSubscriptions() {
   const youtubers = await loadYoutubers();
   for (const youtuber of youtubers) {
     try {
-      const topicUrl = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${youtuber.youtubeId}`;
-      const callbackUrl = 'https://zaronyanbot.com/webhook/youtube';
+      const topicUrl = `://www.youtube.com/xml/feeds/videos.xml?channel_id=${youtuber.youtubeId}`;
+      const callbackUrl = '://zaronyanbot.com/webhook/youtube';
       const requestBody = {
         'hub.mode': 'subscribe',
         'hub.topic': topicUrl,
@@ -384,7 +384,7 @@ async function renewSubscriptions() {
         'hub.secret': YOUTUBE_WEBHOOK_SECRET,
       };
       console.log(`サブスクリプションリクエスト: ${youtuber.youtubeUsername} (${youtuber.youtubeId}), hub.mode=${requestBody['hub.mode']}`);
-      await axios.post('https://pubsubhubbub.appspot.com/subscribe', new URLSearchParams(requestBody), {
+      await axios.post('://pubsubhubbub.appspot.com/subscribe', new URLSearchParams(requestBody), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
       console.log(`サブスクリプション更新成功: ${youtuber.youtubeUsername} (${youtuber.youtubeId})`);
@@ -412,7 +412,7 @@ async function checkTwitchStreams() {
   for (const streamer of streamers) {
     try {
       console.log(`Twitch配信チェック: ${streamer.twitchUsername} (${streamer.twitchId})`);
-      const response = await axios.get('https://api.twitch.tv/helix/streams', {
+      const response = await axios.get('://api.twitch.tv/helix/streams', {
         params: { user_id: streamer.twitchId },
         headers: {
           'Client-ID': TWITCH_CLIENT_ID,
@@ -440,7 +440,7 @@ async function checkTwitchStreams() {
                 embeds: [{
                   title: `${streamer.twitchUsername} がTwitchでライブ配信中！`,
                   description: `📺 タイトル: ${title}`,
-                  url: `https://www.twitch.tv/${streamer.twitchUsername}`,
+                  url: `://www.twitch.tv/${streamer.twitchUsername}`,
                   image: { url: currentStream.thumbnail_url.replace('{width}', '1280').replace('{height}', '720') },
                   color: 6570404,
                 }],
@@ -467,7 +467,7 @@ async function checkTwitCastingStreams() {
   for (const twitcaster of twitcasters) {
     try {
       console.log(`ツイキャス配信チェック: ${twitcaster.twitcastingUsername} (${twitcaster.twitcastingId})`);
-      const response = await axios.get(`https://apiv2.twitcasting.tv/users/${twitcaster.twitcastingId}/current_live`, {
+      const response = await axios.get(`://apiv2.twitcasting.tv/users/${twitcaster.twitcastingId}/current_live`, {
         headers: {
           'Client-ID': TWITCASTING_CLIENT_ID,
           'Client-Secret': TWITCASTING_CLIENT_SECRET,
@@ -490,7 +490,7 @@ async function checkTwitCastingStreams() {
             }
             const channel = client.channels.cache.get(settings.channelId);
             if (channel) {
-              await channel.send(`📡 ${twitcaster.twitcastingUsername} がツイキャスでライブ配信中！\nタイトル: ${title}\nhttps://twitcasting.tv/${twitcaster.twitcastingId}`);
+              await channel.send(`📡 ${twitcaster.twitcastingUsername} がツイキャスでライブ配信中！\nタイトル: ${title}\n://twitcasting.tv/${twitcaster.twitcastingId}`);
               console.log(`ツイキャス通知送信: ${twitcaster.twitcastingUsername}, サーバー=${guildId}`);
             }
           }
@@ -539,7 +539,7 @@ app.get('/callback', async (req, res) => {
       return res.status(400).send('状態パラメータの形式が無効です。');
     }
 
-    const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
+    const tokenResponse = await axios.post('://discord.com/api/oauth2/token', new URLSearchParams({
       client_id: process.env.DISCORD_CLIENT_ID,
       client_secret: process.env.DISCORD_CLIENT_SECRET,
       grant_type: 'authorization_code',
@@ -550,14 +550,14 @@ app.get('/callback', async (req, res) => {
     });
 
     const accessToken = tokenResponse.data.access_token;
-    const userResponse = await axios.get('https://discord.com/api/users/@me', {
+    const userResponse = await axios.get('://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const authUserId = userResponse.data.id;
 
     // アカウントリンク処理
     if (type === 'twitch') {
-      const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
+      const connectionsResponse = await axios.get('://discord.com/api/users/@me/connections', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const twitchConnection = connectionsResponse.data.find(conn => conn.type === 'twitch');
@@ -594,7 +594,7 @@ app.get('/callback', async (req, res) => {
         return res.status(400).send(`YouTubeアカウント登録数が上限（${youtubeAccountLimit}）に達しています。`);
       }
 
-      const connectionsResponse = await axios.get('https://discord.com/api/users/@me/connections', {
+      const connectionsResponse = await axios.get('://discord.com/api/users/@me/connections', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const youtubeConnection = connectionsResponse.data.find(conn => conn.type === 'youtube');
@@ -705,8 +705,8 @@ app.get('/callback', async (req, res) => {
 // Expressサーバーの起動（HTTPS）
 try {
   const options = {
-    key: fs.readFileSync('/home/sambaktorio/discord-stream-bot/certs/localhost.key'),
-    cert: fs.readFileSync('/home/sambaktorio/discord-stream-bot/certs/localhost.key'),
+    key: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
+    cert: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
   };
 
   https.createServer(options, app).listen(3001, '0.0.0.0', () => {
