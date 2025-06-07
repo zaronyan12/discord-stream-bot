@@ -761,15 +761,24 @@ client.once('ready', async () => {
       .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
   ];
 
-  try {
-    // スラッシュコマンドを一旦削除（キャッシュ問題対策）
-    await client.application.fetch(); 
-    await client.application.commands.set([]);
-    console.log('すべてのスラッシュコマンドを削除しました');
-    await client.application.commands.set(commands);
-    console.log('スラッシュコマンドを登録しました');
+try {
+    // コマンド登録前に既存のコマンドをクリア
+    await client.application.commands.set([]).then(() => {
+      console.log('すべてのスラッシュコマンドを削除しました');
+    });
+    
+    // 少し待機してレート制限を回避
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // 新しいコマンドを登録
+    await client.application.commands.set(commands).then(() => {
+      console.log('スラッシュコマンドを登録しました');
+    });
   } catch (err) {
-    console.error('スラッシュコマンド登録エラー:', err.message);
+    console.error('スラッシュコマンド登録エラー:', {
+      message: err.message,
+      stack: err.stack,
+    });
   }
 
   // 設定ファイルの初期化確認
