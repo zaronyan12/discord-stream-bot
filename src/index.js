@@ -827,7 +827,7 @@ try {
   // 初回チェック
   checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err.message));
   checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err.message));
-};
+});
 
 lient.on('messageCreate', async message => {
   if (message.author.bot || message.channel.type === ChannelType.DM) return;
