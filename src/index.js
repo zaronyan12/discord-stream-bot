@@ -4,7 +4,6 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
-const fs.Promises = require('fs').promises;
 const https = require('https');
 // const FormData = require('form-data'); // 未使用のためコメントアウト
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
