@@ -856,61 +856,43 @@ client.on('messageCreate', async message => {
     const youtubers = await loadYoutubers();
     const twitcasters = await loadTwitcasters();
 
-    const baseButtons = [];
-    baseButtons.push(
-      new ButtonBuilder()
-        .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
-        .setLabel('Twitch通知')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('🔴'),
-    );
-    if (youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit) {
-      baseButtons.push(
+const baseButtons = [
+  new ButtonBuilder()
+    .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
+    .setLabel('Twitch通知')
+    .setStyle(ButtonStyle.Primary)
+    .setEmoji('🔴'),
+  ...(youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit
+    ? [
         new ButtonBuilder()
           .setCustomId(`link_youtube_${pending.guildId}_${message.author.id}`)
           .setLabel('YouTube通知')
           .setStyle(ButtonStyle.Danger)
           .setEmoji('▶️'),
-      );
-    }
-    if (twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit) {
-      baseButtons.push(
+      ]
+    : []),
+  ...(twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit
+    ? [
         new ButtonBuilder()
           .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
           .setLabel('ツイキャス通知')
           .setStyle(ButtonStyle.Success)
           .setEmoji('📡'),
-      );
-    }
+      ]
+    : []),
+];
 
-    const members = await guild.members.fetch();
-    let successCount = 0;
-    let failCount = 0;
-    const errors = [];
+const members = await guild.members.fetch();
+let successCount = 0;
+let failCount = 0;
 
-    for (const member of members.values()) {
-      if (member.user.bot) continue;
-      const memberRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`link_twitch_${pending.guildId}_${member.id}`)
-          .setLabel('Twitch通知')
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji('🔴'),
-        youtubeAccountLimit === 0 || youtubers.length < youtubeAccountLimit
-          ? new ButtonBuilder()
-              .setCustomId(`link_youtube_${pending.guildId}_${member.id}`)
-              .setLabel('YouTube通知')
-              .setStyle(ButtonStyle.Danger)
-              .setEmoji('▶️')
-          : null,
-        twitcastingAccountLimit === 0 || twitcasters.length < twitcastingAccountLimit
-          ? new ButtonBuilder()
-              .setCustomId(`link_twitcasting_${pending.guildId}_${member.id}`)
-              .setLabel('ツイキャス通知')
-              .setStyle(ButtonStyle.Success)
-              .setEmoji('📡')
-          : null,
-      ).addComponents(row.components.filter(c => c));
+for (const member of members.values()) {
+  if (member.user.bot) continue;
+  const memberRow = new ActionRowBuilder().addComponents(
+    baseButtons.map(button =>
+      ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id)),
+    ),
+  );
 
       try {
         await member.send({ content: messageContent, components: [memberRow] });
