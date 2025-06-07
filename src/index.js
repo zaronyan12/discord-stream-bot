@@ -897,8 +897,7 @@ lient.on('messageCreate', async message => {
     const youtubers = await loadYoutubers();
     const twitcasters = await loadTwitcasters();
 
-    const baseButtons = [
-client.on('messageCreate', async message => {
+  client.on('messageCreate', async message => {
   if (message.author.bot || message.channel.type === ChannelType.DM) return;
 
   const pending = pendingMazakari.get(message.author.id);
