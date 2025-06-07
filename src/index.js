@@ -705,8 +705,8 @@ app.get('/callback', async (req, res) => {
 // Expressサーバーの起動（HTTPS）
 try {
   const options = {
-    key: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/privkey.pem'),
-    cert: fs.readFileSync('/etc/letsencrypt/live/zaronyanbot.com/fullchain.pem'),
+    key: fs.readFileSync('/home/sambaktorio/discord-stream-bot/certs/localhost.key'),
+    cert: fs.readFileSync('/home/sambaktorio/discord-stream-bot/certs/localhost.key'),
   };
 
   https.createServer(options, app).listen(3001, '0.0.0.0', () => {
