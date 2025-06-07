@@ -1439,9 +1439,27 @@ client.on('interactionCreate', async interaction => {
         ephemeral: true,
       });
     }
-
+    
     // クリックしたユーザーの ID を使用
     const userId = interaction.user.id;
+
+    // 追加: リンク済みアカウントのチェック
+    const dataLoaders = {
+      twitch: loadStreamers,
+      youtube: loadYoutubers,
+      twitcasting: loadTwitcasters,
+    };
+    const list = await dataLoaders[type]();
+    const isLinked = list.some(s => s.discordId === userId);
+
+    if (isLinked) {
+      // すでにリンク済みの場合
+      await interaction.reply({
+        content: `${type.charAt(0).toUpperCase() + type.slice(1)}アカウントはすでにリンクされています。`,
+        ephemeral: true,
+      });
+      return;
+    }
 
     // 直接 OAuth2 URL を生成
     const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
