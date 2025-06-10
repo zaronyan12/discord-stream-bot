@@ -757,27 +757,6 @@ client.once('ready', async () => {
           .setRequired(true),
       ),
     new SlashCommandBuilder()
-      .setName('set_mazakari_roles')
-      .setDescription('通知設定ボタンで付与するロールを設定')
-      .addRoleOption(option =>
-        option
-          .setName('twitch_role')
-          .setDescription('Twitch通知ボタンで付与するロール')
-          .setRequired(true),
-      )
-      .addRoleOption(option =>
-        option
-          .setName('youtube_role')
-          .setDescription('YouTube通知ボタンで付与するロール')
-          .setRequired(true),
-      )
-      .addRoleOption(option =>
-        option
-          .setName('twitcasting_role')
-          .setDescription('ツイキャス通知ボタンで付与するロール')
-          .setRequired(true),
-      ),
-    new SlashCommandBuilder()
       .setName('admin_message')
       .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
     new SlashCommandBuilder()
@@ -1198,53 +1177,101 @@ client.on('interactionCreate', async interaction => {
     const creators = await loadCreators();
 
     if (interaction.isCommand()) {
-      if (interaction.commandName === 'setup_s') {
-        if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.reply({
-            content: 'このコマンドを使用するには管理者権限が必要です。',
-            ephemeral: true,
-          });
-        }
+if (interaction.commandName === 'setup_s') {
+  if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
+    return interaction.reply({
+      content: 'このコマンドを使用するには管理者権限が必要です。',
+      ephemeral: true,
+    });
+  }
 
-        const channel = interaction.options.getChannel('channel');
-        const liveRole = interaction.options.getRole('live_role');
-        const serverSettings = await loadServerSettings();
-        serverSettings.servers[interaction.guild.id] = {
-          channelId: channel.id,
-          liveRoleId: liveRole.id,
-          notificationRoles: serverSettings.servers[interaction.guild.id]?.notificationRoles || {},
-          keywords: serverSettings.servers[interaction.guild.id]?.keywords || [],
-        };
-        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
-        await interaction.reply({
-          content: `配信通知設定を保存しました。\nチャンネル: ${channel}\nライブロール: ${liveRole}`,
-          ephemeral: false,
-        });
-      } else if (interaction.commandName === 'set_mazakari_roles') {
-        if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
-          return interaction.reply({
-            content: 'このコマンドを使用するには管理者権限が必要です。',
-            ephemeral: true,
-          });
-        }
+  const channel = interaction.options.getChannel('channel');
+  const liveRole = interaction.options.getRole('live_role');
+  const twitchRoleName = interaction.options.getString('twitch_role') || 'Twitch通知';
+  const youtubeRoleName = interaction.options.getString('youtube_role') || 'YouTube通知';
+  const twitcastingRoleName = interaction.options.getString('twitcasting_role') || 'ツイキャス通知';
+  const guildId = interaction.guildId;
 
-        const twitchRole = interaction.options.getRole('twitch_role');
-        const youtubeRole = interaction.options.getRole('youtube_role');
-        const twitcastingRole = interaction.options.getRole('twitcasting_role');
-        const serverSettings = await loadServerSettings();
-        serverSettings.servers[interaction.guild.id] = {
-          ...serverSettings.servers[interaction.guild.id],
-          notificationRoles: {
-            twitch: twitchRole.id,
-            youtube: youtubeRole.id,
-            twitcasting: twitcastingRole.id,
-          },
-        };
-        await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
-        await interaction.reply({
-          content: `通知ロールを設定しました。\nTwitch: ${twitchRole}\nYouTube: ${youtubeRole}\nツイキャス: ${twitcastingRole}`,
-          ephemeral: true,
-        });
+  const serverSettings = await loadServerSettings();
+  if (!serverSettings.servers[guildId]) {
+    serverSettings.servers[guildId] = {};
+  }
+
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+      throw new Error('ロール作成権限がありません');
+    }
+
+    // ロールの作成または取得
+    let twitchRole = guild.roles.cache.find(r => r.name === twitchRoleName);
+    if (!twitchRole) {
+      twitchRole = await guild.roles.create({
+        name: twitchRoleName,
+        color: '#6441A4', // Twitch紫
+        mentionable: true,
+        reason: 'Twitch通知用ロールの作成',
+      });
+      console.log(`Twitchロール作成: ${twitchRoleName} (ID: ${twitchRole.id})`);
+    }
+
+    let youtubeRole = guild.roles.cache.find(r => r.name === youtubeRoleName);
+    if (!youtubeRole) {
+      youtubeRole = await guild.roles.create({
+        name: youtubeRoleName,
+        color: '#FF0000', // YouTube赤
+        mentionable: true,
+        reason: 'YouTube通知用ロールの作成',
+      });
+      console.log(`YouTubeロール作成: ${youtubeRoleName} (ID: ${youtubeRole.id})`);
+    }
+
+    let twitcastingRole = guild.roles.cache.find(r => r.name === twitcastingRoleName);
+    if (!twitcastingRole) {
+      twitcastingRole = await guild.roles.create({
+        name: twitcastingRoleName,
+        color: '#1DA1F2', // TwitCasting青
+        mentionable: true,
+        reason: 'ツイキャス通知用ロールの作成',
+      });
+      console.log(`ツイキャスロール作成: ${twitcastingRoleName} (ID: ${twitcastingRole.id})`);
+    }
+
+    // serverSettingsに設定を保存
+    serverSettings.servers[guildId] = {
+      channelId: channel.id,
+      liveRoleId: liveRole.id,
+      keywords: serverSettings.servers[guildId]?.keywords || [], // 既存キーワードを保持
+      notificationRoles: {
+        twitch: twitchRole.id,
+        youtube: youtubeRole.id,
+        twitcasting: twitcastingRole.id,
+      },
+    };
+
+    await fsPromises.writeFile(SERVER_SETTINGS_FILE, JSON.stringify(serverSettings, null, 2));
+    console.log(`サーバー設定保存: guildId=${guildId}, channelId=${channel.id}, liveRoleId=${liveRole.id}, notificationRoles=${JSON.stringify(serverSettings.servers[guildId].notificationRoles)}`);
+
+    await interaction.reply({
+      content: `配信通知設定を保存しました:\n` +
+               `- 通知チャンネル: ${channel}\n` +
+               `- ライブロール: ${liveRole}\n` +
+               `- Twitch通知ロール: ${twitchRole}\n` +
+               `- YouTube通知ロール: ${youtubeRole}\n` +
+               `- ツイキャス通知ロール: ${twitcastingRole}`,
+      ephemeral: false,
+    });
+  } catch (err) {
+    console.error('サーバー設定エラー:', {
+      message: err.message,
+      stack: err.stack,
+      guildId,
+      channelId: channel.id,
+    });
+    await interaction.reply({
+      content: `サーバー設定の保存中にエラーが発生しました: ${err.message}\n管理者にご連絡ください。`,
+      ephemeral: true,
+    });
       } else if (interaction.commandName === 'admin_message') {
         if (!isAdmin) {
           return interaction.reply({
