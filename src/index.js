@@ -1257,7 +1257,7 @@ if (interaction.commandName === 'setup_s') {
                `- 通知チャンネル: ${channel}\n` +
                `- ライブロール: ${liveRole}\n` +
                `- Twitch通知ロール: ${twitchRole}\n` +
-               `- YouTube通知ロール: ${youtubeRole}\n` +
+               `- YouTube通知ロール: ${youtubeRole}\n` + // タイポ修正
                `- ツイキャス通知ロール: ${twitcastingRole}`,
       ephemeral: false,
     });
@@ -1272,7 +1272,8 @@ if (interaction.commandName === 'setup_s') {
       content: `サーバー設定の保存中にエラーが発生しました: ${err.message}\n管理者にご連絡ください。`,
       ephemeral: true,
     });
-      } else if (interaction.commandName === 'admin_message') {
+  }
+} else if (interaction.commandName === 'admin_message') {
         if (!isAdmin) {
           return interaction.reply({
             content: 'このコマンドは管理者にしか使用できません。',
