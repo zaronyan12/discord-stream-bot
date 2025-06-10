@@ -261,10 +261,11 @@ async function getTwitchAccessToken() {
 // Webhookサーバーからのリクエストを受け取るエンドポイント
 app.post('/webhook/youtube', async (req, res) => {
   try {
-    const clientIp = req.ip || req.connection.remoteAddress;
-    if (clientIp !== '::1' && clientIp !== '127.0.0.1') {
-      console.warn('不正な送信元IP:', { clientIp, body: req.body });
-      return res.status(200).end();
+    //test処理
+    //const clientIp = req.ip || req.connection.remoteAddress;
+    //if (clientIp !== '::1' && clientIp !== '127.0.0.1') {
+    //  console.warn('不正な送信元IP:', { clientIp, body: req.body });
+    //  return res.status(200).end();
     }
 
     const { channelId, videoId, title } = req.body;
