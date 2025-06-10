@@ -295,58 +295,73 @@ app.post('/webhook/youtube', async (req, res) => {
     }
 
     let video;
-    try {
-      const videoResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-        params: { part: 'liveStreamingDetails,snippet', id: videoId, key: YOUTUBE_API_KEY },
-        timeout: 5000,
-      });
-      video = videoResponse.data.items?.[0];
-      if (!video) {
-        console.warn(`動画データが見つかりません: videoId=${videoId}`);
-        return res.status(200).end();
-      }
-    } catch (apiErr) {
-      console.error('YouTube APIエラー:', {
-        message: apiErr.message,
-        status: apiErr.response?.status,
-        data: apiErr.response?.data,
-        videoId,
-        channelId,
-      });
-      return res.status(200).end();
-    }
+try {
+  const videoResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+    params: { part: 'liveStreamingDetails,snippet', id: videoId, key: YOUTUBE_API_KEY },
+    timeout: 5000,
+  });
+  video = videoResponse.data.items?.[0];
+  if (!video) {
+    console.warn(`動画データが見つかりません: videoId=${videoId}, レスポンス=${JSON.stringify(videoResponse.data)}`);
+    return res.status(200).end();
+  }
+  console.log(`YouTube APIレスポンス: videoId=${videoId}, liveStreamingDetails=${JSON.stringify(video.liveStreamingDetails)}`);
+} catch (apiErr) {
+  console.error('YouTube APIエラー:', {
+    message: apiErr.message,
+    status: apiErr.response?.status,
+    data: JSON.stringify(apiErr.response?.data),
+    videoId,
+    channelId,
+    stack: apiErr.stack,
+  });
+  return res.status(200).end();
+}
 
     const serverSettings = await loadServerSettings();
 
     if (video.liveStreamingDetails?.actualStartTime && !video.liveStreamingDetails.actualEndTime) {
-      const cachedStream = activeStreams.youtube.get(channelId);
-      if (cachedStream && cachedStream.videoId === videoId && cachedStream.title === title) {
-        console.log(`重複通知をスキップ: ${youtuber.youtubeUsername}, videoId=${videoId}`);
-        return res.status(200).end();
-      }
+const cachedStream = activeStreams.youtube.get(channelId);
+if (cachedStream && cachedStream.videoId === videoId && cachedStream.title === title) {
+  console.log(`重複通知をスキップ: ${youtuber.youtubeUsername}, videoId=${videoId}, キャッシュ=${JSON.stringify(cachedStream)}`);
+  return res.status(200).end();
+}
 
       const sendPromises = [];
       for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-        if (!settings.channelId || !settings.notificationRoles?.youtube) {
-          console.log(`通知設定なし: サーバー=${guildId}`);
-          continue;
-        }
-        if (settings.keywords && settings.keywords.length > 0) {
-          if (!settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()))) {
-            console.log(`キーワード不一致: ${title}, サーバー=${guildId}`);
-            continue;
-          }
-        }
-        const channel = client.channels.cache.get(settings.channelId);
-        if (!channel) {
-          console.warn(`チャンネルが見つかりません: channelId=${settings.channelId}, サーバー=${guildId}`);
-          continue;
-        }
-        sendPromises.push(
-          channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`)
-            .then(() => console.log(`YouTube通知送信成功: ${youtuber.youtubeUsername}, サーバー=${guildId}`))
-            .catch(err => console.error(`通知送信エラー: サーバー=${guildId}`, { message: err.message }))
-        );
+      if (!settings.channelId) {
+  console.warn(`通知チャンネル未設定: サーバー=${guildId}`);
+  continue;
+}
+if (!settings.notificationRoles?.youtube) {
+  console.warn(`YouTube通知ロール未設定: サーバー=${guildId}`);
+  continue;
+}
+if (settings.keywords && settings.keywords.length > 0) {
+  const matched = settings.keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()));
+  if (!matched) {
+    console.log(`キーワード不一致: タイトル="${title}", キーワード=[${settings.keywords.join(', ')}], サーバー=${guildId}`);
+    continue;
+  } else {
+    console.log(`キーワード一致: タイトル="${title}", キーワード=[${settings.keywords.join(', ')}], サーバー=${guildId}`);
+  }
+}
+        
+const channel = client.channels.cache.get(settings.channelId);
+if (!channel) {
+  console.warn(`チャンネルが見つかりません: channelId=${settings.channelId}, サーバー=${guildId}`);
+  continue;
+}
+const botMember = await client.guilds.cache.get(guildId).members.fetch(client.user.id);
+if (!channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
+  console.warn(`メッセージ送信権限がありません: channelId=${settings.channelId}, サーバー=${guildId}`);
+  continue;
+}
+sendPromises.push(
+  channel.send(`🎥 ${youtuber.youtubeUsername} がYouTubeでライブ配信中！\nタイトル: ${title}\nhttps://www.youtube.com/watch?v=${videoId}`)
+    .then(() => console.log(`YouTube通知送信成功: ${youtuber.youtubeUsername}, サーバー=${guildId}`))
+    .catch(err => console.error(`通知送信エラー: サーバー=${guildId}, channelId=${settings.channelId}`, { message: err.message, stack: err.stack }))
+);
       }
       await Promise.all(sendPromises);
       activeStreams.youtube.set(channelId, { videoId, title, notifiedAt: Date.now() });
