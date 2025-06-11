@@ -770,7 +770,7 @@ client.once('ready', async () => {
           .setName('channel')
           .setDescription('配信通知を送信するチャンネル')
           .setRequired(true),
-      )
+      ),
     new SlashCommandBuilder()
       .setName('admin_message')
       .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
