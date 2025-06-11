@@ -1,4 +1,3 @@
-// index.js
 const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, TextInputBuilder, TextInputStyle, ModalBuilder, ChannelType } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
@@ -261,11 +260,11 @@ async function getTwitchAccessToken() {
 // Webhookサーバーからのリクエストを受け取るエンドポイント
 app.post('/webhook/youtube', async (req, res) => {
   try {
-    //test処理
-    //const clientIp = req.ip || req.connection.remoteAddress;
-    //if (clientIp !== '::1' && clientIp !== '127.0.0.1') {
-    //  console.warn('不正な送信元IP:', { clientIp, body: req.body });
-    //  return res.status(200).end();
+    const clientIp = req.ip || req.connection.remoteAddress;
+    console.log('受信IP:', { clientIp, headers: req.headers }); // デバッグ用ログ
+    if (clientIp !== '::1' && clientIp !== '127.0.0.1'&& clientIp !== '10.138.0.4') {
+      console.warn('不正な送信元IP:', { clientIp, body: req.body });
+      return res.status(200).end();
     }
 
     const { channelId, videoId, title } = req.body;
