@@ -1419,6 +1419,7 @@ if (interaction.commandName === 'setup_s') {
           content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
           ephemeral: true,
         });
+}
 else if (interaction.commandName === 'clear_streams') {
   if (!isAdmin) {
     return interaction.reply({
