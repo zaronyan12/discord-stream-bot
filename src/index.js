@@ -413,7 +413,6 @@ async function renewSubscriptions() {
   }
 }
 
-// Twitchライブ配信のチェック（1分間隔）
 async function checkTwitchStreams() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
@@ -451,16 +450,24 @@ async function checkTwitchStreams() {
             }
             const channel = client.channels.cache.get(settings.channelId);
             if (channel) {
-              await channel.send({
-                embeds: [{
-                  title: `${streamer.twitchUsername} がTwitchでライブ配信中！`,
-                  description: `📺 タイトル: ${title}`,
-                  url: `https://www.twitch.tv/${streamer.twitchUsername}`,
-                  image: { url: currentStream.thumbnail_url.replace('{width}', '1280').replace('{height}', '720') },
-                  color: 6570404,
-                }],
-              });
-              console.log(`Twitch通知送信: ${streamer.twitchUsername}, サーバー=${guildId}`);
+              // Discord名を取得
+              let discordUsername = streamer.twitchUsername; // フォールバック
+              try {
+                const guild = client.guilds.cache.get(guildId);
+                if (guild && streamer.discordId) {
+                  const member = await guild.members.fetch(streamer.discordId).catch(() => null);
+                  if (member) {
+                    discordUsername = member.user.username;
+                  }
+                }
+              } catch (err) {
+                console.error(`Discordユーザー名取得エラー (userId: ${streamer.discordId}):`, err.message);
+              }
+
+              await channel.send(
+                `🔴 ${discordUsername} がTwitchでライブ配信中！\nタイトル: ${title}\nhttps://www.twitch.tv/${streamer.twitchUsername}`
+              );
+              console.log(`Twitch通知送信: ${discordUsername}, サーバー=${guildId}`);
             }
           }
           activeStreams.twitch.set(streamer.twitchId, { streamId, title, notifiedAt: Date.now() });
@@ -475,7 +482,6 @@ async function checkTwitchStreams() {
   }
 }
 
-// ツイキャスライブ配信のチェック
 async function checkTwitCastingStreams() {
   const twitcasters = await loadTwitcasters();
   const serverSettings = await loadServerSettings();
@@ -505,8 +511,24 @@ async function checkTwitCastingStreams() {
             }
             const channel = client.channels.cache.get(settings.channelId);
             if (channel) {
-              await channel.send(`📡 ${twitcaster.twitcastingUsername} がツイキャスでライブ配信中！\nタイトル: ${title}\nhttps://twitcasting.tv/${twitcaster.twitcastingId}`);
-              console.log(`ツイキャス通知送信: ${twitcaster.twitcastingUsername}, サーバー=${guildId}`);
+              // Discord名を取得
+              let discordUsername = twitcaster.twitcastingUsername; // フォールバック
+              try {
+                const guild = client.guilds.cache.get(guildId);
+                if (guild && twitcaster.discordId) {
+                  const member = await guild.members.fetch(twitcaster.discordId).catch(() => null);
+                  if (member) {
+                    discordUsername = member.user.username;
+                  }
+                }
+              } catch (err) {
+                console.error(`Discordユーザー名取得エラー (userId: ${twitcaster.discordId}):`, err.message);
+              }
+
+              await channel.send(
+                `📡 ${discordUsername} がツイキャスでライブ配信中！\nタイトル: ${title}\nhttps://twitcasting.tv/${twitcaster.twitcastingId}`
+              );
+              console.log(`ツイキャス通知送信: ${discordUsername}, サーバー=${guildId}`);
             }
           }
           activeStreams.twitcasting.set(twitcaster.twitcastingId, { liveId, title, notifiedAt: Date.now() });
@@ -520,7 +542,6 @@ async function checkTwitCastingStreams() {
     }
   }
 }
-
 app.get('/callback', async (req, res) => {
   console.log('Received /callback request:', {
     query: req.query,
@@ -750,12 +771,6 @@ client.once('ready', async () => {
           .setDescription('配信通知を送信するチャンネル')
           .setRequired(true),
       )
-      .addRoleOption(option =>
-        option
-          .setName('live_role')
-          .setDescription('配信中に付与するロール')
-          .setRequired(true),
-      ),
     new SlashCommandBuilder()
       .setName('admin_message')
       .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
@@ -1186,10 +1201,10 @@ if (interaction.commandName === 'setup_s') {
   }
 
   const channel = interaction.options.getChannel('channel');
-  const liveRole = interaction.options.getRole('live_role');
   const twitchRoleName = interaction.options.getString('twitch_role') || 'Twitch通知';
   const youtubeRoleName = interaction.options.getString('youtube_role') || 'YouTube通知';
   const twitcastingRoleName = interaction.options.getString('twitcasting_role') || 'ツイキャス通知';
+  const liveRoleName = 'Live Streaming'; // デフォルトのライブロール名
   const guildId = interaction.guildId;
 
   const serverSettings = await loadServerSettings();
@@ -1237,6 +1252,17 @@ if (interaction.commandName === 'setup_s') {
       console.log(`ツイキャスロール作成: ${twitcastingRoleName} (ID: ${twitcastingRole.id})`);
     }
 
+    let liveRole = guild.roles.cache.find(r => r.name === liveRoleName);
+    if (!liveRole) {
+      liveRole = await guild.roles.create({
+        name: liveRoleName,
+        color: '#00FF00', // ライブロール用カラー（緑）
+        mentionable: true,
+        reason: 'ライブ配信中ロールの作成',
+      });
+      console.log(`ライブロール作成: ${liveRoleName} (ID: ${liveRole.id})`);
+    }
+
     // serverSettingsに設定を保存
     serverSettings.servers[guildId] = {
       channelId: channel.id,
@@ -1257,7 +1283,7 @@ if (interaction.commandName === 'setup_s') {
                `- 通知チャンネル: ${channel}\n` +
                `- ライブロール: ${liveRole}\n` +
                `- Twitch通知ロール: ${twitchRole}\n` +
-               `- YouTube通知ロール: ${youtubeRole}\n` + // タイポ修正
+               `- YouTube通知ロール: ${youtubeRole}\n` +
                `- ツイキャス通知ロール: ${twitcastingRole}`,
       ephemeral: false,
     });
@@ -1272,7 +1298,7 @@ if (interaction.commandName === 'setup_s') {
       content: `サーバー設定の保存中にエラーが発生しました: ${err.message}\n管理者にご連絡ください。`,
       ephemeral: true,
     });
-  }
+  }   
 } else if (interaction.commandName === 'admin_message') {
         if (!isAdmin) {
           return interaction.reply({
@@ -1393,43 +1419,69 @@ if (interaction.commandName === 'setup_s') {
           content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
           ephemeral: true,
         });
-      } else if (interaction.commandName === 'clear_streams') {
-        if (!isAdmin) {
-          return interaction.reply({
-            content: 'このコマンドは管理者にしか使用できません。',
-            ephemeral: true,
-          });
-        }
+else if (interaction.commandName === 'clear_streams') {
+  if (!isAdmin) {
+    return interaction.reply({
+      content: 'このコマンドは管理者にしか使用できません。',
+      ephemeral: true,
+    });
+  }
 
-        const exclude = interaction.options.getString('exclude')?.split(',').map(id => id.trim()) || [];
-        let streamers = await loadStreamers();
-        let youtubers = await loadYoutubers();
-        let twitcasters = await loadTwitcasters();
+  const guild = interaction.guild;
+  if (!guild) {
+    return interaction.reply({
+      content: 'このコマンドはサーバー内でのみ使用可能です。',
+      ephemeral: true,
+    });
+  }
 
-        streamers = streamers.filter(s => exclude.includes(s.discordId));
-        youtubers = youtubers.filter(y => exclude.includes(y.discordId));
-        twitcasters = twitcasters.filter(t => exclude.includes(t.discordId));
+  const exclude = interaction.options.getString('exclude')?.split(',').map(id => id.trim()) || [];
+  let streamers = await loadStreamers();
+  let youtubers = await loadYoutubers();
+  let twitcasters = await loadTwitcasters();
 
-        try {
-          await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
-          await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
-          await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+  // ギルドメンバーを取得
+  const members = await guild.members.fetch();
+  const memberIds = new Set(members.map(m => m.id));
 
-          await interaction.reply({
-            content: `配信設定を削除しました。\n` +
-                     `- Twitch: ${streamers.length}件残存\n` +
-                     `- YouTube: ${youtubers.length}件残存\n` +
-                     `- TwitCasting: ${twitcasters.length}件残存\n` +
-                     `除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
-            ephemeral: true,
-          });
-        } catch (err) {
-          console.error('ファイル処理エラー:', err.message);
-          await interaction.reply({
-            content: '配信設定の削除中にエラーが発生しました。管理者にご連絡ください。',
-            ephemeral: true,
-          });
-        }
+  // ギルドメンバーのみにフィルタリング
+  const originalCounts = {
+    streamers: streamers.length,
+    youtubers: youtubers.length,
+    twitcasters: twitcasters.length,
+  };
+
+  streamers = streamers.filter(s => exclude.includes(s.discordId) || !memberIds.has(s.discordId));
+  youtubers = youtubers.filter(y => exclude.includes(y.discordId) || !memberIds.has(y.discordId));
+  twitcasters = twitcasters.filter(t => exclude.includes(t.discordId) || !memberIds.has(t.discordId));
+
+  try {
+    await fsPromises.writeFile(STREAMERS_FILE, JSON.stringify(streamers, null, 2));
+    await fsPromises.writeFile(YOUTUBERS_FILE, JSON.stringify(youtubers, null, 2));
+    await fsPromises.writeFile(TWITCASTERS_FILE, JSON.stringify(twitcasters, null, 2));
+
+    const clearedCounts = {
+      streamers: originalCounts.streamers - streamers.length,
+      youtubers: originalCounts.youtubers - youtubers.length,
+      twitcasters: originalCounts.twitcasters - twitcasters.length,
+    };
+
+    await interaction.reply({
+      content: `このサーバーの配信設定を削除しました。\n` +
+               `- Twitch: ${clearedCounts.streamers}件削除 (${streamers.length}件残存)\n` +
+               `- YouTube: ${clearedCounts.youtubers}件削除 (${youtubers.length}件残存)\n` +
+               `- TwitCasting: ${clearedCounts.twitcasters}件削除 (${twitcasters.length}件残存)\n` +
+               `除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
+      ephemeral: true,
+    });
+  } catch (err) {
+    console.error('ファイル処理エラー:', err.message);
+    await interaction.reply({
+      content: '配信設定の削除中にエラーが発生しました。管理者にご連絡ください。',
+      ephemeral: true,
+    });
+  }
+}
       } else if (interaction.commandName === 'set_keywords') {
         if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
           return interaction.reply({
