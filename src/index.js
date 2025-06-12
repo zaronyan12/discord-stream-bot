@@ -121,7 +121,25 @@ async function saveConfigFile(filePath, data) {
     throw err;
   }
 }
+async function clearAllCommands(guildId = null) {
+  const target = guildId ? client.guilds.cache.get(guildId) : client.application;
+  if (!target) {
+    console.error(`コマンドクリア対象が見つかりません: ${guildId || 'グローバル'}`);
+    return false;
+  }
 
+  try {
+    await target.commands.set([]); // 空のコマンドリストを設定して全削除
+    console.log(`スラッシュコマンドをクリアしました (対象: ${guildId || 'グローバル'})`);
+    return true;
+  } catch (err) {
+    console.error(`スラッシュコマンドクリア失敗 (対象: ${guildId || 'グローバル'}):`, {
+      message: err.message,
+      stack: err.stack
+    });
+    return false;
+  }
+}
 // ==============================================
 // 設定ファイルの読み込み/保存関数
 // ==============================================
