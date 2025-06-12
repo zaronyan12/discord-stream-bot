@@ -290,7 +290,7 @@ app.post('/webhook/youtube', async (req, res) => {
     console.log('YouTube Webhook受信 (POST):', { clientIp, body: req.body });
     
     // IP制限
-    if (!['::1', '127.0.0.1', '10.138.0.4'].includes(clientIp)) {
+    if (clientIp !== '::1' && clientIp !== '127.0.0.1'&& clientIp !== '10.138.0.4') {
       console.warn('不正な送信元IP:', clientIp);
       return res.status(403).send('不正な送信元IPです');
     }
