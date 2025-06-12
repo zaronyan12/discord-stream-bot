@@ -302,6 +302,7 @@ function checkKeywords(title, keywords) {
 // ==============================================
 // Webhookハンドラー
 // ==============================================
+
 app.post('/webhook/youtube', async (req, res) => {
   try {
     const clientIp = req.ip || req.connection.remoteAddress;
@@ -316,9 +317,60 @@ app.post('/webhook/youtube', async (req, res) => {
     const { channelId, videoId, title } = req.body;
     if (!channelId || !videoId || !title) {
       console.warn('無効なWebhookデータ受信:', { channelId, videoId, title });
-      return res.status(400).send('無効なリクエストデータです');
+      return res.status(200).end();
     }
-    // 処理は変更なし
+
+    console.log('YouTube Webhook受信:', { channelId, videoId, title });
+
+    const youtubers = await loadYoutubers();
+    const youtuber = youtubers.find(y => y.youtubeId === channelId);
+    if (!youtuber) {
+      console.log(`チャンネル未登録: ${channelId}`);
+      return res.status(200).end();
+    }
+
+    const video = await getYouTubeVideoInfo(videoId);
+    if (!video) {
+      console.warn(`動画データが見つかりません: ${videoId}`);
+      return res.status(200).end();
+    }
+
+    const serverSettings = await loadServerSettings();
+    const liveDetails = video.liveStreamingDetails;
+
+    if (liveDetails?.actualStartTime && !liveDetails.actualEndTime) {
+      // 配信開始処理
+      const cachedStream = activeStreams.youtube.get(channelId);
+      if (cachedStream && cachedStream.videoId === videoId) {
+        console.log(`重複通知をスキップ: ${youtuber.youtubeUsername}, ${videoId}`);
+        return res.status(200).end();
+      }
+
+      const notificationPromises = [];
+      for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
+        if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
+        if (!checkKeywords(title, settings.keywords)) continue;
+
+        notificationPromises.push(
+          sendStreamNotification({
+            platform: 'youtube',
+            username: youtuber.youtubeUsername,
+            title,
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            channelId: settings.channelId,
+            roleId: settings.notificationRoles.youtube
+          })
+        );
+      }
+
+      await Promise.all(notificationPromises);
+      activeStreams.youtube.set(channelId, { videoId, title, notifiedAt: Date.now() });
+    } else if (liveDetails?.actualEndTime) {
+      // 配信終了処理
+      activeStreams.youtube.delete(channelId);
+      console.log(`ライブ配信終了: ${youtuber.youtubeUsername}, ${videoId}`);
+    }
+
     res.status(200).end();
   } catch (err) {
     console.error('Webhook処理エラー:', {
@@ -697,6 +749,7 @@ try {
 // ==============================================
 // Discordイベントハンドラー
 // ==============================================
+
 client.once('ready', async () => {
   console.log('✅ ボットがオンラインになりました！');
 
@@ -1066,6 +1119,7 @@ client.on('guildMemberAdd', async member => {
   }
 });
 
+// インタラクション処理
 client.on('interactionCreate', async interaction => {
   if (!interaction) {
     console.error('インタラクションが未定義');
@@ -1100,7 +1154,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// スラッシュコマンドハンドラー（約1394行目付近）
+// スラッシュコマンドハンドラー
 async function handleSlashCommand(interaction) {
   const { commandName, user, guild, options } = interaction;
   const admins = await loadAdmins();
@@ -1108,26 +1162,271 @@ async function handleSlashCommand(interaction) {
   const creators = await loadCreators();
   const isCreator = creators.creators.includes(user.id);
 
-  // ギルド外でのコマンド実行をチェック
-  if (!guild) {
-    return interaction.reply({
-      content: 'このコマンドはサーバー内でのみ使用可能です。',
-      flags: [InteractionResponseFlags.Ephemeral]
-    });
-  }
-
   switch (commandName) {
-    case 'set_keywords': {
-      // メンバーと権限の存在チェック
-      if (!interaction.member || !interaction.member.permissions) {
-        console.warn(`メンバーまたは権限データが見つかりません: ユーザー=${user.id}, ギルド=${guild.id}`);
+    case 'setup_s': {
+      if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: '権限情報を取得できませんでした。サーバー内で再度お試しください。',
-          flags: [InteractionResponseFlags.Ephemeral]
+          content: 'このコマンドを使用するには管理者権限が必要です。',
+          ephemeral: true
         });
       }
 
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      const channel = options.getChannel('channel');
+      const guildId = guild.id;
+
+      try {
+        const serverSettings = await loadServerSettings();
+        if (!serverSettings.servers[guildId]) {
+          serverSettings.servers[guildId] = {};
+        }
+
+        // ロール作成
+        const roles = {};
+        const roleTypes = [
+          { name: 'Twitch通知', color: '#6441A4', key: 'twitch' },
+          { name: 'YouTube通知', color: '#FF0000', key: 'youtube' },
+          { name: 'ツイキャス通知', color: '#1DA1F2', key: 'twitcasting' },
+          { name: 'Live Streaming', color: '#00FF00', key: 'live' }
+        ];
+
+        for (const { name, color, key } of roleTypes) {
+          let role = guild.roles.cache.find(r => r.name === name);
+          if (!role) {
+            role = await guild.roles.create({ name, color, mentionable: true });
+            console.log(`${name}ロール作成: ${role.id}`);
+          }
+          roles[key] = role;
+        }
+
+        // 設定保存
+        serverSettings.servers[guildId] = {
+          channelId: channel.id,
+          liveRoleId: roles.live.id,
+          keywords: serverSettings.servers[guildId]?.keywords || [],
+          notificationRoles: {
+            twitch: roles.twitch.id,
+            youtube: roles.youtube.id,
+            twitcasting: roles.twitcasting.id
+          }
+        };
+
+        await saveConfigFile(SERVER_SETTINGS_FILE, serverSettings);
+
+        await interaction.reply({
+          content: `配信通知設定を保存しました:\n` +
+                   `- 通知チャンネル: ${channel}\n` +
+                   `- ライブロール: ${roles.live}\n` +
+                   `- Twitch通知ロール: ${roles.twitch}\n` +
+                   `- YouTube通知ロール: ${roles.youtube}\n` +
+                   `- ツイキャス通知ロール: ${roles.twitcasting}`,
+          ephemeral: false
+        });
+      } catch (err) {
+        console.error('サーバー設定エラー:', err.message);
+        await interaction.reply({
+          content: `サーバー設定の保存中にエラーが発生しました: ${err.message}`,
+          ephemeral: true
+        });
+      }
+      break;
+    }
+
+    case 'admin_message': {
+      if (!isAdmin) {
+        return interaction.reply({
+          content: 'このコマンドは管理者にしか使用できません。',
+          ephemeral: true
+        });
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId('admin_message_modal')
+        .setTitle('管理者メッセージ送信');
+
+      const passwordInput = new TextInputBuilder()
+        .setCustomId('password')
+        .setLabel('パスワード')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('管理者パスワードを入力')
+        .setRequired(true);
+
+      const messageInput = new TextInputBuilder()
+        .setCustomId('message')
+        .setLabel('送信するメッセージ')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('サーバー管理者に送信するメッセージを入力')
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(passwordInput),
+        new ActionRowBuilder().addComponents(messageInput)
+      );
+
+      await interaction.showModal(modal);
+      break;
+    }
+
+    case 'reload_config': {
+      if (!isAdmin) {
+        return interaction.reply({
+          content: 'このコマンドは管理者のみ使用可能です。',
+          ephemeral: true
+        });
+      }
+
+      await Promise.all([
+        loadConfig(true),
+        loadStreamers(true),
+        loadYoutubers(true),
+        loadTwitcasters(true),
+        loadServerSettings(true),
+        loadAdmins(true),
+        loadMazakari(true),
+        loadCreators(true)
+      ]);
+
+      await interaction.reply({
+        content: '設定ファイルを再読み込みしました。',
+        ephemeral: true
+      });
+      break;
+    }
+
+    case 'admin': {
+      if (!isCreator) {
+        return interaction.reply({
+          content: 'このコマンドはボット製作者のみ使用可能です。',
+          ephemeral: true
+        });
+      }
+
+      const user = options.getUser('user');
+      if (creators.creators.includes(user.id)) {
+        return interaction.reply({
+          content: `${user.tag} はすでにボット製作者権限を持っています。`,
+          ephemeral: true
+        });
+      }
+
+      creators.creators.push(user.id);
+      await saveCreators(creators);
+      await interaction.reply({
+        content: `${user.tag} にボット製作者権限を付与しました。`,
+        ephemeral: true
+      });
+      break;
+    }
+
+    case 'mazakari': {
+      if (!isCreator) {
+        return interaction.reply({
+          content: 'このコマンドはボット製作者のみ使用可能です。',
+          ephemeral: true
+        });
+      }
+
+      await interaction.reply({
+        content: '配信通知設定のメッセージを記載した`.txt`ファイルをこのチャンネルに添付してください（30秒以内に）。',
+        ephemeral: true
+      });
+
+      pendingMazakari.set(user.id, {
+        guildId: guild.id,
+        channelId: interaction.channel.id,
+        timestamp: Date.now()
+      });
+
+      setTimeout(() => {
+        if (pendingMazakari.has(user.id)) {
+          pendingMazakari.delete(user.id);
+          interaction.followUp({
+            content: 'タイムアウトしました。再度`/mazakari`を実行してください。',
+            ephemeral: true
+          }).catch(err => console.error('フォローアップエラー:', err.message));
+        }
+      }, 30000);
+      break;
+    }
+
+    case 'stop_mazakari': {
+      if (!isCreator) {
+        return interaction.reply({
+          content: 'このコマンドはボット製作者のみ使用可能です。',
+          ephemeral: true
+        });
+      }
+
+      const mazakari = await loadMazakari();
+      if (!mazakari.enabled[guild.id]) {
+        return interaction.reply({
+          content: 'このサーバーではMazakariは有効になっていません。',
+          ephemeral: true
+        });
+      }
+
+      mazakari.enabled[guild.id] = false;
+      delete mazakari.guilds[guild.id];
+      await saveConfigFile(MAZAKARI_FILE, mazakari);
+      await interaction.reply({
+        content: 'Mazakari機能を停止しました。新規メンバーへの通知は行われません。',
+        ephemeral: true
+      });
+      break;
+    }
+
+    case 'clear_streams': {
+      if (!isAdmin) {
+        return interaction.reply({
+          content: 'このコマンドは管理者にしか使用できません。',
+          ephemeral: true
+        });
+      }
+
+      const exclude = options.getString('exclude')?.split(',').map(id => id.trim()) || [];
+      const members = await guild.members.fetch();
+      const memberIds = new Set(members.map(m => m.id));
+
+      const [streamers, youtubers, twitcasters] = await Promise.all([
+        loadStreamers(),
+        loadYoutubers(),
+        loadTwitcasters()
+      ]);
+
+      const originalCounts = {
+        streamers: streamers.length,
+        youtubers: youtubers.length,
+        twitcasters: twitcasters.length
+      };
+
+      const filteredStreamers = streamers.filter(s => exclude.includes(s.discordId) || !memberIds.has(s.discordId));
+      const filteredYoutubers = youtubers.filter(y => exclude.includes(y.discordId) || !memberIds.has(y.discordId));
+      const filteredTwitcasters = twitcasters.filter(t => exclude.includes(t.discordId) || !memberIds.has(t.discordId));
+
+      await Promise.all([
+        saveConfigFile(STREAMERS_FILE, filteredStreamers),
+        saveConfigFile(YOUTUBERS_FILE, filteredYoutubers),
+        saveConfigFile(TWITCASTERS_FILE, filteredTwitcasters)
+      ]);
+
+      const clearedCounts = {
+        streamers: originalCounts.streamers - filteredStreamers.length,
+        youtubers: originalCounts.youtubers - filteredYoutubers.length,
+        twitcasters: originalCounts.twitcasters - filteredTwitcasters.length
+      };
+
+      await interaction.reply({
+        content: `このサーバーの配信設定を削除しました。\n` +
+                 `- Twitch: ${clearedCounts.streamers}件削除 (${filteredStreamers.length}件残存)\n` +
+                 `- YouTube: ${clearedCounts.youtubers}件削除 (${filteredYoutubers.length}件残存)\n` +
+                 `- TwitCasting: ${clearedCounts.twitcasters}件削除 (${filteredTwitcasters.length}件残存)\n` +
+                 `除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
+        ephemeral: true
+      });
+      break;
+    }
+
+    case 'set_keywords': {
+      if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
           content: 'このコマンドを使用するには管理者権限が必要です。',
           flags: [InteractionResponseFlags.Ephemeral]
@@ -1147,6 +1446,7 @@ async function handleSlashCommand(interaction) {
       });
       break;
     }
+
     case 'test_message': {
       await interaction.reply({
         content: 'テストメッセージ',
