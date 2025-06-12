@@ -697,10 +697,9 @@ try {
 // ==============================================
 // Discordイベントハンドラー
 // ==============================================
-
 client.once('ready', async () => {
   console.log('✅ ボットがオンラインになりました！');
-  // スラッシュコマンドの登録
+
   try {
     // 既存のスラッシュコマンドをクリア
     console.log('既存のスラッシュコマンドをクリア中...');
@@ -709,94 +708,92 @@ client.once('ready', async () => {
     for (const guildId of guildIds) {
       await clearAllCommands(guildId); // 各ギルドのコマンドをクリア
     }
-  // スラッシュコマンドの登録
-  const commands = [
-    new SlashCommandBuilder()
-      .setName('setup_s')
-      .setDescription('配信通知の設定を行います')
-      .addChannelOption(option =>
-        option.setName('channel')
-          .setDescription('配信通知を送信するチャンネル')
-          .setRequired(true)
-      ),
-    new SlashCommandBuilder()
-      .setName('admin_message')
-      .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
-    new SlashCommandBuilder()
-      .setName('reload_config')
-      .setDescription('設定ファイルを再読み込み（管理者専用）'),
-    new SlashCommandBuilder()
-      .setName('admin')
-      .setDescription('ユーザーにボット製作者権限を付与（製作者専用）')
-      .addUserOption(option =>
-        option.setName('user')
-          .setDescription('管理者権限を付与するユーザー')
-          .setRequired(true)
-      ),
-    new SlashCommandBuilder()
-      .setName('mazakari')
-      .setDescription('全メンバーに配信通知設定のDMを送信（管理者専用）'),
-    new SlashCommandBuilder()
-      .setName('stop_mazakari')
-      .setDescription('Mazakari機能を停止（管理者専用）'),
-    new SlashCommandBuilder()
-      .setName('clear_streams')
-      .setDescription('すべての配信設定を削除（管理者専用）')
-      .addStringOption(option =>
-        option.setName('exclude')
-          .setDescription('除外するユーザーID（カンマ区切り）')
-          .setRequired(false)
-      ),
-    new SlashCommandBuilder()
-      .setName('set_keywords')
-      .setDescription('配信通知のキーワードを設定')
-      .addStringOption(option =>
-        option.setName('keywords')
-          .setDescription('通知する配信タイトルのキーワード（カンマ区切り）')
-          .setRequired(true)
-      ),
-    new SlashCommandBuilder()
-      .setName('test_message')
-      .setDescription('テストメッセージを送信'),
-    new SlashCommandBuilder()
-      .setName('clear_keywords')
-      .setDescription('すべての通知キーワードを削除'),
-    new SlashCommandBuilder()
-      .setName('remember_twitch')
-      .setDescription('このサーバーに対してTwitch通知を有効化'),
-    new SlashCommandBuilder()
-      .setName('remember_youtube')
-      .setDescription('このサーバーに対してYouTube通知を有効化'),
-    new SlashCommandBuilder()
-      .setName('remember_twitcasting')
-      .setDescription('このサーバーに対してツイキャス通知を有効化'),
-    new SlashCommandBuilder()
-      .setName('link')
-      .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
-  ];
 
-  // スラッシュコマンド登録関数
-  async function registerCommands(guildId = null) {
-    const target = guildId ? client.guilds.cache.get(guildId) : client.application;
-    if (!target) {
-      console.error('コマンド登録先が見つかりません:', guildId);
-      return false;
+    // スラッシュコマンドの登録
+    const commands = [
+      new SlashCommandBuilder()
+        .setName('setup_s')
+        .setDescription('配信通知の設定を行います')
+        .addChannelOption(option =>
+          option.setName('channel')
+            .setDescription('配信通知を送信するチャンネル')
+            .setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('admin_message')
+        .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('reload_config')
+        .setDescription('設定ファイルを再読み込み（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('admin')
+        .setDescription('ユーザーにボット製作者権限を付与（製作者専用）')
+        .addUserOption(option =>
+          option.setName('user')
+            .setDescription('管理者権限を付与するユーザー')
+            .setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('mazakari')
+        .setDescription('全メンバーに配信通知設定のDMを送信（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('stop_mazakari')
+        .setDescription('Mazakari機能を停止（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('clear_streams')
+        .setDescription('すべての配信設定を削除（管理者専用）')
+        .addStringOption(option =>
+          option.setName('exclude')
+            .setDescription('除外するユーザーID（カンマ区切り）')
+            .setRequired(false)
+        ),
+      new SlashCommandBuilder()
+        .setName('set_keywords')
+        .setDescription('配信通知のキーワードを設定')
+        .addStringOption(option =>
+          option.setName('keywords')
+            .setDescription('通知する配信タイトルのキーワード（カンマ区切り）')
+            .setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('test_message')
+        .setDescription('テストメッセージを送信'),
+      new SlashCommandBuilder()
+        .setName('clear_keywords')
+        .setDescription('すべての通知キーワードを削除'),
+      new SlashCommandBuilder()
+        .setName('remember_twitch')
+        .setDescription('このサーバーに対してTwitch通知を有効化'),
+      new SlashCommandBuilder()
+        .setName('remember_youtube')
+        .setDescription('このサーバーに対してYouTube通知を有効化'),
+      new SlashCommandBuilder()
+        .setName('remember_twitcasting')
+        .setDescription('このサーバーに対してツイキャス通知を有効化'),
+      new SlashCommandBuilder()
+        .setName('link')
+        .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
+    ];
+
+    // スラッシュコマンド登録関数
+    async function registerCommands(guildId = null) {
+      const target = guildId ? client.guilds.cache.get(guildId) : client.application;
+      if (!target) {
+        console.error('コマンド登録先が見つかりません:', guildId);
+        return false;
+      }
+
+      try {
+        await target.commands.set(commands);
+        console.log(`スラッシュコマンドを登録しました (対象: ${guildId || 'グローバル'})`);
+        return true;
+      } catch (err) {
+        console.error(`スラッシュコマンド登録失敗 (対象: ${guildId || 'グローバル'}):`, err.message);
+        return false;
+      }
     }
 
-    try {
-      await target.commands.set(commands);
-      console.log(`スラッシュコマンドを登録しました (対象: ${guildId || 'グローバル'})`);
-      return true;
-    } catch (err) {
-      console.error(`スラッシュコマンド登録失敗 (対象: ${guildId || 'グローバル'}):`, err.message);
-      return false;
-    }
-  }
-
-  // 初期化処理
-  try {
     // すべてのギルドにコマンドを登録
-    const guildIds = client.guilds.cache.map(guild => guild.id);
     for (const guildId of guildIds) {
       await registerCommands(guildId);
     }
@@ -818,7 +815,10 @@ client.once('ready', async () => {
       checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err))
     ]);
   } catch (err) {
-    console.error('初期化エラー:', err.message);
+    console.error('初期化エラー:', {
+      message: err.message,
+      stack: err.stack
+    });
   }
 });
 
