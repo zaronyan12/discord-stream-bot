@@ -682,7 +682,15 @@ try {
 
 client.once('ready', async () => {
   console.log('✅ ボットがオンラインになりました！');
-
+  // スラッシュコマンドの登録
+  try {
+    // 既存のスラッシュコマンドをクリア
+    console.log('既存のスラッシュコマンドをクリア中...');
+    await clearAllCommands(); // グローバルコマンドをクリア
+    const guildIds = client.guilds.cache.map(guild => guild.id);
+    for (const guildId of guildIds) {
+      await clearAllCommands(guildId); // 各ギルドのコマンドをクリア
+    }
   // スラッシュコマンドの登録
   const commands = [
     new SlashCommandBuilder()
