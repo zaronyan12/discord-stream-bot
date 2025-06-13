@@ -1148,7 +1148,7 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
         content: 'エラーが発生しました。管理者にご連絡ください。',
-        flags: [InteractionResponseFlags.Ephemeral] // 非推奨警告を修正
+        ephemeral: true // 非推奨警告を修正
       }).catch(replyErr => console.error('エラーメッセージ送信失敗:', replyErr.message));
     }
   }
@@ -1429,7 +1429,7 @@ async function handleSlashCommand(interaction) {
       if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
           content: 'このコマンドを使用するには管理者権限が必要です。',
-          flags: [InteractionResponseFlags.Ephemeral]
+          ephemeral: true
         });
       }
 
@@ -1442,7 +1442,7 @@ async function handleSlashCommand(interaction) {
       await saveConfigFile(SERVER_SETTINGS_FILE, serverSettings);
       await interaction.reply({
         content: `キーワードを設定しました: ${keywords.join(', ')}`,
-        flags: [InteractionResponseFlags.Ephemeral]
+        ephemeral: true
       });
       break;
     }
