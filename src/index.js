@@ -302,14 +302,13 @@ function checkKeywords(title, keywords) {
 // ==============================================
 // Webhookハンドラー
 // ==============================================
-
 app.post('/webhook/youtube', async (req, res) => {
   try {
     const clientIp = req.ip || req.connection.remoteAddress;
     console.log('YouTube Webhook受信 (POST):', { clientIp, body: req.body });
     
     // IP制限
-    if (clientIp !== '::1' && clientIp !== '127.0.0.1'&& clientIp !== '10.138.0.4') {
+    if (clientIp !== '::1' && clientIp !== '127.0.0.1' && clientIp !== '10.138.0.4') {
       console.warn('不正な送信元IP:', clientIp);
       return res.status(403).send('不正な送信元IPです');
     }
@@ -322,12 +321,14 @@ app.post('/webhook/youtube', async (req, res) => {
 
     console.log('YouTube Webhook受信:', { channelId, videoId, title });
 
-    const youtubers = await loadYoutubers();
+    const youtubers = await loadYoutubers(true); // キャッシュを強制更新
     const youtuber = youtubers.find(y => y.youtubeId === channelId);
     if (!youtuber) {
       console.log(`チャンネル未登録: ${channelId}`);
       return res.status(200).end();
     }
+
+    console.log(`[webhook/youtube] 通知対象: username=${youtuber.youtubeUsername}, guildIds=${youtuber.guildIds.join(', ')}`);
 
     const video = await getYouTubeVideoInfo(videoId);
     if (!video) {
@@ -347,16 +348,34 @@ app.post('/webhook/youtube', async (req, res) => {
       }
 
       const notificationPromises = [];
-      for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-        if (!settings.channelId || !settings.notificationRoles?.youtube) continue;
-        if (!checkKeywords(title, settings.keywords)) continue;
+      // 修正: youtuber.guildIds のみをループ
+      for (const guildId of youtuber.guildIds) {
+        const settings = serverSettings.servers?.[guildId];
+        if (!settings) {
+          console.warn(`[webhook/youtube] ギルド設定が見つかりません: guild=${guildId}`);
+          continue;
+        }
+        if (!settings.channelId) {
+          console.warn(`[webhook/youtube] 通知チャンネル未設定: guild=${guildId}`);
+          continue;
+        }
+        if (!settings.notificationRoles?.youtube) {
+          console.warn(`[webhook/youtube] YouTube通知ロール未設定: guild=${guildId}`);
+          continue;
+        }
+        if (!checkKeywords(title, settings.keywords)) {
+          console.log(`[webhook/youtube] キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords.join(', ')}`);
+          continue;
+        }
 
+        console.log(`[webhook/youtube] 通知送信準備: guild=${guildId}, channel=${settings.channelId}`);
         notificationPromises.push(
           sendStreamNotification({
             platform: 'youtube',
             username: youtuber.youtubeUsername,
             title,
             url: `https://www.youtube.com/watch?v=${videoId}`,
+            guildId, // guildId を追加
             channelId: settings.channelId,
             roleId: settings.notificationRoles.youtube
           })
