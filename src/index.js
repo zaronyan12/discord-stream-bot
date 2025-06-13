@@ -57,7 +57,9 @@ const activeStreams = {
 
 // /mazakariのファイル待ち状態
 const pendingMazakari = new Map();
-
+//20250614
+const welcomeChannels = new Map();
+//20250614
 // Discordクライアント
 const client = new Client({
   intents: [
@@ -908,7 +910,7 @@ client.on('guildCreate', async guild => {
   console.log(`[guildCreate] 新しいギルドに招待されました: guild=${guild.id}, name=${guild.name}, memberCount=${guild.memberCount}`);
   try {
     // ready イベントと同じコマンドリストを再利用
-    const commands = [
+    const slashCommands  = [
       new SlashCommandBuilder()
         .setName('setup_s')
         .setDescription('配信通知の設定を行います')
