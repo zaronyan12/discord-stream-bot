@@ -773,12 +773,13 @@ client.once('ready', async () => {
   console.log('✅ ボットがオンラインになりました！');
 
   try {
-    // 既存のスラッシュコマンドをクリア
+    //20250614
     console.log('既存のスラッシュコマンドをクリア中...');
     await clearAllCommands(); // グローバルコマンドをクリア
-    const guildIds = client.guilds.cache.map(guild => guild.id);
-    for (const guildId of guildIds) {
+    const allGuildIds = client.guilds.cache.map(guild => guild.id); // guildIds を allGuildIds に変更
+    for (const guildId of allGuildIds) {
       await clearAllCommands(guildId); // 各ギルドのコマンドをクリア
+    //20250614
     }
 
     // スラッシュコマンドの登録
