@@ -845,8 +845,15 @@ client.once('ready', async () => {
       new SlashCommandBuilder()
         .setName('link')
         .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
-    ];
-
+    ].map(command => command.toJSON());
+    
+        // 既存のスラッシュコマンドをクリア（グローバルは不要なので削除）
+    console.log('[ready] ギルドコマンドをクリア中...');
+    const guildIds = client.guilds.cache.map(guild => guild.id);
+    for (const guildId of guildIds) {
+      await clearAllCommands(guildId); // ギルドコマンドのみクリア
+    }
+    
     // スラッシュコマンド登録関数
     async function registerCommands(guildId = null) {
       const target = guildId ? client.guilds.cache.get(guildId) : client.application;
@@ -893,6 +900,97 @@ client.once('ready', async () => {
     });
   }
 });
+
+//20250614
+// guildCreate イベントハンドラー（新規追加）
+client.on('guildCreate', async guild => {
+  console.log(`[guildCreate] 新しいギルドに招待されました: guild=${guild.id}, name=${guild.name}, memberCount=${guild.memberCount}`);
+  try {
+    // ready イベントと同じコマンドリストを再利用
+    const commands = [
+      new SlashCommandBuilder()
+        .setName('setup_s')
+        .setDescription('配信通知の設定を行います')
+        .addChannelOption(option =>
+          option.setName('channel')
+            .setDescription('配信通知を送信するチャンネル')
+            .setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('admin_message')
+        .setDescription('全サーバーの管理者にメッセージを送信（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('reload_config')
+        .setDescription('設定ファイルを再読み込み（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('admin')
+        .setDescription('ユーザーにボット製作者権限を付与（製作者専用）')
+        .addUserOption(option =>
+          option.setName('user')
+            .setDescription('管理者権限を付与するユーザー')
+            .setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('mazakari')
+        .setDescription('全メンバーに配信通知設定のDMを送信（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('stop_mazakari')
+        .setDescription('Mazakari機能を停止（管理者専用）'),
+      new SlashCommandBuilder()
+        .setName('clear_streams')
+        .setDescription('すべての配信設定を削除（管理者専用）')
+        .addStringOption(option =>
+          option.setName('exclude')
+            .setDescription('除外するユーザーID（カンマ区切り）')
+            .setRequired(false)
+        ),
+      new SlashCommandBuilder()
+        .setName('set_keywords')
+        .setDescription('配信通知のキーワードを設定')
+        .addStringOption(option =>
+          option.setName('keywords')
+            .setDescription('通知する配信タイトルのキーワード（カンマ区切り）')
+            .setRequired(true)
+        ),
+      new SlashCommandBuilder()
+        .setName('test_message')
+        .setDescription('テストメッセージを送信'),
+      new SlashCommandBuilder()
+        .setName('clear_keywords')
+        .setDescription('すべての通知キーワードを削除'),
+      new SlashCommandBuilder()
+        .setName('remember_twitch')
+        .setDescription('このサーバーに対してTwitch通知を有効化'),
+      new SlashCommandBuilder()
+        .setName('remember_youtube')
+        .setDescription('このサーバーに対してYouTube通知を有効化'),
+      new SlashCommandBuilder()
+        .setName('remember_twitcasting')
+        .setDescription('このサーバーに対してツイキャス通知を有効化'),
+      new SlashCommandBuilder()
+        .setName('link')
+        .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
+    ].map(command => command.toJSON());
+    
+    // ギルドコマンドを登録
+    await guild.commands.set(commands);
+    console.log(`[guildCreate] スラッシュコマンドを登録しました: guild=${guild.id}`);
+
+    // serverSettings.json の初期化
+    const serverSettings = await loadServerSettings();
+    if (!serverSettings.servers[guild.id]) {
+      serverSettings.servers[guild.id] = {};
+      await saveConfigFile(SERVER_SETTINGS_FILE, serverSettings);
+      console.log(`[guildCreate] ギルド設定を初期化: guild=${guild.id}`);
+    }
+  } catch (err) {
+    console.error(`[guildCreate] エラー: guild=${guild.id}`, {
+      message: err.message,
+      stack: err.stack
+    });
+  }
+});
+//20250614
 
 // メッセージ作成イベント
 client.on('messageCreate', async message => {
