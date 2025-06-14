@@ -998,7 +998,7 @@ client.on('guildCreate', async guild => {
     ].map(command => command.toJSON());
     
     // ギルドコマンドを登録
-    await guild.commands.set(commands);
+    await guild.commands.set(slashCommands);
     console.log(`[guildCreate] スラッシュコマンドを登録しました: guild=${guild.id}`);
 
     // serverSettings.json の初期化
