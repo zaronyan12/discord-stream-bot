@@ -1790,12 +1790,14 @@ async function handleModalSubmit(interaction) {
     const [_, __, guildId, userId] = interaction.customId.split('_');
     const url = interaction.fields.getTextInputValue('stream_url').trim();
 
-    if (!client.guilds.cache.has(guildId)) {
-      return interaction.reply({
-        content: '無効なサーバーIDです。',
-        ephemeral: true
-      });
-    }
+const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
+if (!guild) {
+  console.error(`無効なサーバーID: ${guildId}`);
+  return interaction.reply({
+    content: '無効なサーバーIDです。',
+    ephemeral: true
+  });
+}
 
     const platformData = parseStreamUrl(url);
     if (!platformData) {
