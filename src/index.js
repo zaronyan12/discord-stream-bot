@@ -593,7 +593,6 @@ async function renewSubscriptions() {
 // ==============================================
 // Expressルート
 // ==============================================
-
 app.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
   
@@ -733,19 +732,42 @@ app.get('/callback', async (req, res) => {
 
     if (guild.members.me.roles.highest.position <= role.position) {
       console.warn(`ロール付与不可: ロール=${roleId} の位置がボットより高い`);
-      return res.send(`${type}アカウントはリンクされましたが、ボットの権限不足です`);
+      return res.send(`${type}アカウントはリンクしましたが、ボットの権限不足です`);
     }
 
     await member.roles.add(roleId);
-    console.log(`ロール付与成功: ユーザー=${member.id}, ロール=${roleId}`);
-    
+    console.log(`[callback] ロール付与成功: user=${member.id}, role=${roleId}`); // 修正: ログフォーマット変更
+
+    // /mazakariやguildMemberAdd由来のプライベートチャンネルの削除 // 新規追加
+    const channelId = welcomeChannels.get(authUserId); // 新規追加
+    if (channelId) { // 新規追加
+      try { // 新規追加
+        const botMember = guild.members.me; // 新規追加
+        if (guild.channels.cache.some(channel => // 新規追加
+          channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) { // 新規追加
+          const channel = guild.channels.cache.get(channelId); // 新規追加
+          if (channel && channel.name.startsWith('welcome-')) { // 新規追加
+            await channel.delete(); // 新規追加
+            welcomeChannels.delete(authUserId); // 新規追加
+            console.log(`[callback] /mazakari由来チャンネル削除成功: user=${authUserId}, channel=${channelId}`); // 新規追加
+          } else { // 新規追加
+            console.warn(`[callback] チャンネルが見つからないか無効: channel=${channelId}`); // 新規追加
+            welcomeChannels.delete(authUserId); // 新規追加
+          } // 新規追加
+        } else { // 新規追加
+          console.warn(`[callback] チャンネル削除権限なし: guild=${guildId}`); // 新規追加
+        } // 新規追加
+      } catch (deleteErr) { // 新規追加
+        console.error(`[callback] チャンネル削除エラー: user=${authUserId}, channel=${channelId}`, deleteErr.message); // 新規追加
+      } // 新規追加
+    } // 新規追加
+
     res.send(`${type}アカウントが正常にリンクされ、ロール「${role.name}」が付与されました！`);
   } catch (err) {
-    console.error('OAuthコールバックエラー:', err.message);
+    console.error('[callback] OAuthコールバックエラー:', err.message);
     res.status(500).send('認証中にエラーが発生しました');
   }
 });
-
 // ==============================================
 // HTTPSサーバー起動
 // ==============================================
@@ -1094,47 +1116,48 @@ client.on('messageCreate', async message => {
     let successCount = 0;
     let failCount = 0;
 
-    for (const member of members.values()) {
-      if (member.user.bot) continue;
+for (const member of members.values()) {
+    if (member.user.bot) continue;
 
-      const memberRow = new ActionRowBuilder().addComponents(
-        buttons.map(button =>
-          ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id))
-        )
-      );
+    const memberRow = new ActionRowBuilder().addComponents(
+      buttons.map(button =>
+        ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id))
+      )
+    );
 
+    try {
+      await member.send({ content, components: [memberRow] });
+      successCount++;
+    } catch (err) {
+      console.error(`メンバー ${member.id} へのDM失敗:`, err.message);
       try {
-        await member.send({ content, components: [memberRow] });
-        successCount++;
-      } catch (err) {
-        console.error(`メンバー ${member.id} へのDM失敗:`, err.message);
-        try {
-          const botMember = guild.members.me;
-          if (!guild.channels.cache.some(channel =>
-            channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) {
-            failCount++;
-            continue;
-          }
-
-          const channel = await guild.channels.create({
-            name: `welcome-${member.user.username}`,
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-              { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-              { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-              { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-            ]
-          });
-
-          await channel.send({ content: `${member} ${content}`, components: [memberRow] });
-          successCount++;
-        } catch (createErr) {
-          console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, createErr.message);
+        const botMember = message.guild.members.me;
+        if (!message.guild.channels.cache.some(channel =>
+          channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) {
           failCount++;
+          continue;
         }
+
+        const channel = await message.guild.channels.create({
+          name: `welcome-${member.user.username}`,
+          type: ChannelType.GuildText,
+          permissionOverwrites: [
+            { id: message.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+            { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+            { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+          ]
+        });
+
+        await channel.send({ content: `${member} ${content}`, components: [memberRow] });
+        welcomeChannels.set(member.id, channel.id); // チャンネルID保存
+        console.log(`[messageCreate] チャンネル作成成功: user=${member.id}, channel=${channel.id}`);
+        successCount++;
+      } catch (createErr) {
+        console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, createErr.message);
+        failCount++;
       }
     }
-
+  }
     // Mazakari設定を保存
     const mazakari = await loadMazakari();
     mazakari.enabled[pending.guildId] = true;
@@ -1208,13 +1231,12 @@ client.on('guildMemberAdd', async member => {
     try {
       await member.send({ content: messageContent, components: [row] });
       console.log(`新規メンバー ${member.id} にDM送信成功`);
-    } catch (err) {
+ } catch (err) {
       console.error(`[${member.id}] へのDM失敗:`, err.message);
       try {
         const botMember = member.guild.members.me;
         if (!member.guild.channels.cache.some(channel =>
           channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) {
-          console.warn(`チャンネル作成権限なし: サーバー=${guildId}`);
           return;
         }
 
@@ -1229,7 +1251,8 @@ client.on('guildMemberAdd', async member => {
         });
 
         await channel.send({ content: `${member} ${messageContent}`, components: [row] });
-        console.log(`新規メンバー ${member.id} にチャンネル送信成功`);
+        welcomeChannels.set(member.id, channel.id); // チャンネルID保存
+        console.log(`[guildMemberAdd] チャンネル作成成功: user=${member.id}, channel=${channel.id}`);
       } catch (createErr) {
         console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, createErr.message);
       }
@@ -1503,8 +1526,9 @@ async function handleSlashCommand(interaction) {
       }
 
       const exclude = options.getString('exclude')?.split(',').map(id => id.trim()) || [];
-      const members = await guild.members.fetch();
-      const memberIds = new Set(members.map(m => m.id));
+      const guildId = guild.id; // 新規追加
+      //const members = await guild.members.fetch();
+      //const memberIds = new Set(members.map(m => m.id));
 
       const [streamers, youtubers, twitcasters] = await Promise.all([
         loadStreamers(),
@@ -1518,9 +1542,15 @@ async function handleSlashCommand(interaction) {
         twitcasters: twitcasters.length
       };
 
-      const filteredStreamers = streamers.filter(s => exclude.includes(s.discordId) || !memberIds.has(s.discordId));
-      const filteredYoutubers = youtubers.filter(y => exclude.includes(y.discordId) || !memberIds.has(y.discordId));
-      const filteredTwitcasters = twitcasters.filter(t => exclude.includes(t.discordId) || !memberIds.has(t.discordId));
+      const filteredStreamers = streamers.filter(s =>
+        exclude.includes(s.discordId) || !(s.guildIds && s.guildIds.includes(guildId))
+      ); // 修正
+      const filteredYoutubers = youtubers.filter(y =>
+        exclude.includes(y.discordId) || !(y.guildIds && y.guildIds.includes(guildId))
+      ); // 修正
+      const filteredTwitcasters = twitcasters.filter(t =>
+        exclude.includes(t.discordId) || !(t.guildIds && t.guildIds.includes(guildId))
+      ); // 修正
 
       await Promise.all([
         saveConfigFile(STREAMERS_FILE, filteredStreamers),
@@ -1536,9 +1566,9 @@ async function handleSlashCommand(interaction) {
 
       await interaction.reply({
         content: `このサーバーの配信設定を削除しました。\n` +
-                 `- Twitch: ${clearedCounts.streamers}件削除 (${filteredStreamers.length}件残存)\n` +
-                 `- YouTube: ${clearedCounts.youtubers}件削除 (${filteredYoutubers.length}件残存)\n` +
-                 `- TwitCasting: ${clearedCounts.twitcasters}件削除 (${filteredTwitcasters.length}件残存)\n` +
+                 `- Twitch: ${clearedCounts.streamers}件削除 (${filteredStreamers.length}件残存)\n` + // 修正
+                 `- YouTube: ${clearedCounts.youtubers}件削除 (${filteredYoutubers.length}件残存)\n` + // 修正
+                 `- TwitCasting: ${clearedCounts.twitcasters}件削除 (${filteredTwitcasters.length}件残存)\n` + // 修正
                  `除外ユーザー: ${exclude.length > 0 ? exclude.join(', ') : 'なし'}`,
         ephemeral: true
       });
