@@ -154,7 +154,7 @@ function parseStreamUrl(url) {
   // YouTube: ハンドル形式 (@xxxx)
   const youtubeHandleRegex = /youtube\.com\/(?:channel\/|c\/|user\/|)?@([a-zA-Z0-9_-]+)/;
   const twitchRegex = /twitch\.tv\/([a-zA-Z0-9_]+)/;
-  const twitcastingRegex = /twitcasting\.tv\/([a-zA-Z0-9_]+)/;
+  const twitcastingRegex = /twitcasting\.tv\/([a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
 
   if (youtubeChannelIdRegex.test(url)) {
     const match = url.match(youtubeChannelIdRegex);
@@ -1799,13 +1799,15 @@ if (!guild) {
   });
 }
 
-    const platformData = parseStreamUrl(url);
-    if (!platformData) {
-      return interaction.reply({
-        content: '有効なYouTube、Twitch、またはTwitCastingのURLを入力してください。',
-        ephemeral: true
-      });
-    }
+const platformData = parseStreamUrl(url);
+if (!platformData) {
+  console.warn(`無効なURL: ${url}`);
+  return interaction.reply({
+    content: '有効なYouTube、Twitch、またはTwitCastingのURLを入力してください。',
+    ephemeral: true
+  });
+}
+console.log(`解析結果:`, platformData);
 
     const platformConfig = {
       youtube: { file: YOUTUBERS_FILE, loader: loadYoutubers, key: 'youtubeId', usernameKey: 'youtubeUsername' },
