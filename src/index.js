@@ -1142,10 +1142,33 @@ for (const member of members.values()) {
           name: `welcome-${member.user.username}`,
           type: ChannelType.GuildText,
           permissionOverwrites: [
-            { id: message.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-            { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-            { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-          ]
+            {
+              id: message.guild.id, // @everyone
+              deny: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory // 修正: 追加の権限拒否
+              ]
+            },
+            {
+              id: member.id,
+              allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory // 修正: 明示的に許可
+              ]
+            },
+            {
+              id: client.user.id,
+              allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.SendMessages,
+                PermissionsBitField.Flags.ReadMessageHistory,
+                PermissionsBitField.Flags.ManageChannels // 修正: ボットの管理権限追加
+              ]
+            }
+          ],
+          parent: null // 修正: 親カテゴリなしで独立させる
         });
 
         await channel.send({ content: `${member} ${content}`, components: [memberRow] });
