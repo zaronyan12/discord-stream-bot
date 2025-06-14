@@ -708,59 +708,79 @@ app.get('/callback', async (req, res) => {
     console.log(`${type}アカウントをリンク: ${platformUsername} (${platformId})`);
 
     // ロール付与処理
-    const guild = client.guilds.cache.get(guildId);
-    const settings = await loadServerSettings();
-    const guildSettings = settings.servers[guildId];
-    const roleId = guildSettings?.notificationRoles?.[type];
+const guild = client.guilds.cache.get(guildId);
+const settings = await loadServerSettings();
+const guildSettings = settings.servers[guildId];
+const roleId = guildSettings?.notificationRoles?.[type];
 
-    if (!roleId) {
-      console.warn(`通知ロール未設定: サーバー=${guildId}, タイプ=${type}`);
-      return res.send(`${type}アカウントはリンクされましたが、通知ロールが設定されていません`);
-    }
+if (!roleId) {
+  console.warn(`通知ロール未設定: サーバー=${guildId}, タイプ=${type}`);
+  return res.send(`${type}アカウントはリンクされましたが、通知ロールが設定されていません。サーバー管理者に連絡してください。`);
+}
 
-    const member = await guild.members.fetch(authUserId).catch(() => null);
-    if (!member) {
-      console.error(`メンバー取得失敗: ユーザー=${authUserId}, サーバー=${guildId}`);
-      return res.send(`${type}アカウントはリンクしましたが、メンバー情報が取得できませんでした`);
-    }
+const member = await guild.members.fetch(authUserId).catch(() => null);
+if (!member) {
+  console.error(`メンバー取得失敗: ユーザー=${authUserId}, サーバー=${guildId}`);
+  return res.send(`${type}アカウントはリンクしましたが、メンバー情報が取得できませんでした。サーバー管理者に連絡してください。`);
+}
 
-    const role = await guild.roles.fetch(roleId).catch(() => null);
-    if (!role) {
-      console.error(`ロール取得失敗: ロール=${roleId}, サーバー=${guildId}`);
-      return res.send(`${type}アカウントはリンクしましたが、ロールが見つかりませんでした`);
-    }
+const role = await guild.roles.fetch(roleId).catch(() => null);
+if (!role) {
+  console.error(`ロール取得失敗: ロール=${roleId}, サーバー=${guildId}`);
+  return res.send(`${type}アカウントはリンクしましたが、ロールが見つかりませんでした。サーバー管理者に連絡してください。`);
+}
 
-    if (guild.members.me.roles.highest.position <= role.position) {
-      console.warn(`ロール付与不可: ロール=${roleId} の位置がボットより高い`);
-      return res.send(`${type}アカウントはリンクしましたが、ボットの権限不足です`);
-    }
+const botMember = guild.members.me;
+const botRole = guild.roles.cache.find(r => r.name === '配信通知BOT' && botMember.roles.cache.has(r.id));
+if (!botRole) {
+  console.error(`ボットロールが見つかりません: guild=${guildId}, bot=${botMember.id}`);
+  return res.send(`${type}アカウントはリンクしましたが、ボットのロール（配信通知BOT）が見つかりませんでした。サーバー管理者に連絡してください。`);
+}
 
-    await member.roles.add(roleId);
-    console.log(`[callback] ロール付与成功: user=${member.id}, role=${roleId}`); // 修正: ログフォーマット変更
+// ロール位置の自動調整
+if (botRole.position <= role.position) {
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+    console.warn(`[callback] ロール位置調整権限なし: guild=${guildId}, bot=${botMember.id}`);
+    return res.send(`${type}アカウントはリンクされましたが、ボットのロール位置を調整できませんでした。サーバー管理者に「ロールの管理」権限を付与してください。`);
+  }
 
-    // /mazakariやguildMemberAdd由来のプライベートチャンネルの削除 // 新規追加
-    const channelId = welcomeChannels.get(authUserId); // 新規追加
-    if (channelId) { // 新規追加
-      try { // 新規追加
-        const botMember = guild.members.me; // 新規追加
-        if (guild.channels.cache.some(channel => // 新規追加
+  try {
+    await guild.roles.setPositions([
+      { role: botRole.id, position: role.position + 1 }
+    ]);
+    console.log(`[callback] ロール位置調整成功: guild=${guildId}, botRole=${botRole.id}, newPosition=${role.position + 1}`);
+  } catch (adjustErr) {
+    console.error(`[callback] ロール位置調整エラー: guild=${guildId}, botRole=${botRole.id}`, adjustErr.message);
+    return res.send(`${type}アカウントはリンクしましたが、ボットのロール位置を調整できませんでした。エラー: ${adjustErr.message}。サーバー管理者に連絡してください。`);
+  }
+}
+
+await member.roles.add(roleId);
+console.log(`[callback] ロール付与成功: user=${member.id}, role=${roleId}`);
+
+    // /mazakariやguildMemberAdd由来のプライベートチャンネルの削除 
+    const channelId = welcomeChannels.get(authUserId); 
+    if (channelId) { 
+      try { 
+        const botMember = guild.members.me; 
+        if (guild.channels.cache.some(channel => 
           channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) { // 新規追加
-          const channel = guild.channels.cache.get(channelId); // 新規追加
-          if (channel && channel.name.startsWith('welcome-')) { // 新規追加
-            await channel.delete(); // 新規追加
-            welcomeChannels.delete(authUserId); // 新規追加
-            console.log(`[callback] /mazakari由来チャンネル削除成功: user=${authUserId}, channel=${channelId}`); // 新規追加
-          } else { // 新規追加
-            console.warn(`[callback] チャンネルが見つからないか無効: channel=${channelId}`); // 新規追加
-            welcomeChannels.delete(authUserId); // 新規追加
-          } // 新規追加
-        } else { // 新規追加
+          const channel = guild.channels.cache.get(channelId); 
+          if (channel && channel.name.startsWith('welcome-')) { 
+            await channel.delete(); 
+            welcomeChannels.delete(authUserId); 
+            console.log(`[callback] /mazakari由来チャンネル削除成功: user=${authUserId}, channel=${channelId}`); 
+          } else { 
+            console.warn(`[callback] チャンネルが見つからないか無効: channel=${channelId}`); 
+            welcomeChannels.delete(authUserId); 
+          } 
+        } else { 
           console.warn(`[callback] チャンネル削除権限なし: guild=${guildId}`); // 新規追加
         } // 新規追加
-      } catch (deleteErr) { // 新規追加
+      } catch (deleteErr) { 
         console.error(`[callback] チャンネル削除エラー: user=${authUserId}, channel=${channelId}`, deleteErr.message); // 新規追加
-      } // 新規追加
-    } // 新規追加
+      } 
+    } 
 
     res.send(`${type}アカウントが正常にリンクされ、ロール「${role.name}」が付与されました！`);
   } catch (err) {
