@@ -1121,15 +1121,15 @@ client.on('messageCreate', async message => {
       );
     }
 
-    if (config.twitcastingAccountLimit === 0 || twitcasters.length < config.twitcastingAccountLimit) {
-      buttons.push(
-        new ButtonBuilder()
-          .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
-          .setLabel('ツイキャス通知')
-          .setStyle(ButtonStyle.Success)
-          .setEmoji('📡')
-      );
-    }
+    //if (config.twitcastingAccountLimit === 0 || twitcasters.length < config.twitcastingAccountLimit) {
+    //  buttons.push(
+      //  new ButtonBuilder()
+       //   .setCustomId(`link_twitcasting_${pending.guildId}_${message.author.id}`)
+         // .setLabel('ツイキャス通知')
+          //.setStyle(ButtonStyle.Success)
+          //.setEmoji('📡')
+      //);
+    //}
 
     // メンバーにメッセージ送信
     // メッセージを2000文字以内に分割する関数
@@ -1777,11 +1777,11 @@ async function handleSlashCommand(interaction) {
           .setLabel('YouTubeをリンク')
           .setStyle(ButtonStyle.Danger)
           .setEmoji('▶️'),
-        new ButtonBuilder()
-          .setCustomId(`link_twitcasting_${guildId}`)
-          .setLabel('ツイキャスをリンク')
-          .setStyle(ButtonStyle.Success)
-          .setEmoji('📡')
+        //new ButtonBuilder()
+          //.setCustomId(`link_twitcasting_${guildId}`)
+          //.setLabel('ツイキャスをリンク')
+          //.setStyle(ButtonStyle.Success)
+          //.setEmoji('📡')
       );
 
       await interaction.reply({
