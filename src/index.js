@@ -1469,14 +1469,14 @@ async function handleSlashCommand(interaction) {
         .setCustomId('password')
         .setLabel('パスワード')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('管理者パスワードを入力')
+        ('管理者パスワードを入力')
         .setRequired(true);
 
       const messageInput = new TextInputBuilder()
         .setCustomId('message')
         .setLabel('送信するメッセージ')
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('サーバー管理者に送信するメッセージを入力')
+        ('サーバー管理者に送信するメッセージを入力')
         .setRequired(true);
 
       modal.addComponents(
@@ -2001,7 +2001,7 @@ async function handleButtonInteraction(interaction) {
         .setCustomId('stream_url')
         .setLabel('配信チャンネルのURL')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('例: https://youtube.com/channel/UCxxx, https://twitch.tv/twitchuser, https://twitcasting.tv/twitcasting_user')
+        .setPlaceholder('YouTube/Twitch/ツイキャスのチャンネルURLを入力　')
         .setRequired(true);
 
       modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
