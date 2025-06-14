@@ -1142,6 +1142,7 @@ client.on('messageCreate', async message => {
       const memberRow = new ActionRowBuilder().addComponents(
         buttons.map(button =>
           ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id))
+        )
       );
 
       try {
