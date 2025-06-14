@@ -288,7 +288,7 @@ async function getYouTubeVideoInfo(videoId) {
  * @param {string} [options.discordUsername] Discordユーザー名
  * @returns {Promise<void>}
  */
-async function sendStreamNotification({ platform, username, title, url, channelId, roleId, discordUsername = username }) {
+async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username }) {
   const platformEmoji = {
     twitch: '🔴',
     youtube: '🎥',
@@ -311,15 +311,14 @@ async function sendStreamNotification({ platform, username, title, url, channelI
   
   try {
     await channel.send(message);
-    console.log(`${platformName[platform]}通知送信成功: ${username}, channelId=${channelId}`);
+    console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
   } catch (err) {
-    console.error(`通知送信エラー: channelId=${channelId}`, {
+    console.error(`通知送信エラー: guildId=${guildId}, channelId=${channelId}`, {
       message: err.message,
       stack: err.stack
     });
   }
 }
-
 /**
  * キーワードチェック
  * @param {string} title 配信タイトル
@@ -376,40 +375,40 @@ app.post('/webhook/youtube', async (req, res) => {
         console.log(`重複通知をスキップ: ${youtuber.youtubeUsername}, ${videoId}`);
         return res.status(200).end();
       }
+      
+const notificationPromises = [];
+for (const guildId of youtuber.guildIds || []) {  // ユーザーが参加しているサーバーのみ処理
+  const settings = serverSettings.servers?.[guildId];
+  if (!settings) {
+    console.warn(`[webhook/youtube] ギルド設定が見つかりません: guild=${guildId}`);
+    continue;
+  }
+  if (!settings.channelId) {
+    console.warn(`[webhook/youtube] 通知チャンネル未設定: guild=${guildId}`);
+    continue;
+  }
+  if (!settings.notificationRoles?.youtube) {
+    console.warn(`[webhook/youtube] YouTube通知ロール未設定: guild=${guildId}`);
+    continue;
+  }
+  if (!checkKeywords(title, settings.keywords)) {
+    console.log(`[webhook/youtube] キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
+    continue;
+  }
 
-      const notificationPromises = [];
-      for (const guildId of youtuber.guildIds) {
-        const settings = serverSettings.servers?.[guildId];
-        if (!settings) {
-          console.warn(`[webhook/youtube] ギルド設定が見つかりません: guild=${guildId}`);
-          continue;
-        }
-        if (!settings.channelId) {
-          console.warn(`[webhook/youtube] 通知チャンネル未設定: guild=${guildId}`);
-          continue;
-        }
-        if (!settings.notificationRoles?.youtube) {
-          console.warn(`[webhook/youtube] YouTube通知ロール未設定: guild=${guildId}`);
-          continue;
-        }
-        if (!checkKeywords(title, settings.keywords)) {
-          console.log(`[webhook/youtube] キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords.join(', ')}`);
-          continue;
-        }
-
-        console.log(`[webhook/youtube] 通知送信準備: guild=${guildId}, channel=${settings.channelId}`);
-        notificationPromises.push(
-          sendStreamNotification({
-            platform: 'youtube',
-            username: youtuber.youtubeUsername,
-            title,
-            url: `https://www.youtube.com/watch?v=${videoId}`,
-            guildId,
-            channelId: settings.channelId,
-            roleId: settings.notificationRoles.youtube
-          })
-        );
-      }
+  console.log(`[webhook/youtube] 通知送信準備: guild=${guildId}, channel=${settings.channelId}`);
+  notificationPromises.push(
+    sendStreamNotification({
+      platform: 'youtube',
+      username: youtuber.youtubeUsername,
+      title,
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      guildId,
+      channelId: settings.channelId,
+      roleId: settings.notificationRoles.youtube
+    })
+  );
+}
 
       await Promise.all(notificationPromises);
       activeStreams.youtube.set(channelId, { videoId, title, notifiedAt: Date.now() });
@@ -438,7 +437,6 @@ app.get('/webhook/youtube', (req, res) => {
 // ==============================================
 // 配信チェック関数
 // ==============================================
-
 async function checkTwitchStreams() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
@@ -470,9 +468,18 @@ async function checkTwitchStreams() {
         const { id: streamId, title } = currentStream;
         
         if (!cachedStream || cachedStream.streamId !== streamId) {
-          for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-            if (!settings.channelId || !settings.notificationRoles?.twitch) continue;
-            if (!checkKeywords(title, settings.keywords)) continue;
+          // ユーザーが参加しているサーバーのみに通知を送信
+          for (const guildId of streamer.guildIds || []) {
+            const settings = serverSettings.servers?.[guildId];
+            if (!settings || !settings.channelId || !settings.notificationRoles?.twitch) {
+              console.warn(`通知設定が不完全: guild=${guildId}`);
+              continue;
+            }
+
+            if (!checkKeywords(title, settings.keywords)) {
+              console.log(`キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
+              continue;
+            }
 
             let discordUsername = streamer.twitchUsername;
             try {
@@ -491,6 +498,7 @@ async function checkTwitchStreams() {
               discordUsername,
               title,
               url: `https://www.twitch.tv/${streamer.twitchUsername}`,
+              guildId,
               channelId: settings.channelId,
               roleId: settings.notificationRoles.twitch
             });
@@ -533,9 +541,18 @@ async function checkTwitCastingStreams() {
         const { id: liveId, title } = currentStream;
         
         if (!cachedStream || cachedStream.liveId !== liveId) {
-          for (const [guildId, settings] of Object.entries(serverSettings.servers)) {
-            if (!settings.channelId || !settings.notificationRoles?.twitcasting) continue;
-            if (!checkKeywords(title, settings.keywords)) continue;
+          // ユーザーが参加しているサーバーのみに通知を送信
+          for (const guildId of twitcaster.guildIds || []) {
+            const settings = serverSettings.servers?.[guildId];
+            if (!settings || !settings.channelId || !settings.notificationRoles?.twitcasting) {
+              console.warn(`通知設定が不完全: guild=${guildId}`);
+              continue;
+            }
+
+            if (!checkKeywords(title, settings.keywords)) {
+              console.log(`キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
+              continue;
+            }
 
             let discordUsername = twitcaster.twitcastingUsername;
             try {
@@ -554,6 +571,7 @@ async function checkTwitCastingStreams() {
               discordUsername,
               title,
               url: `https://twitcasting.tv/${twitcaster.twitcastingId}`,
+              guildId,
               channelId: settings.channelId,
               roleId: settings.notificationRoles.twitcasting
             });
