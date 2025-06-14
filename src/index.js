@@ -1919,7 +1919,6 @@ if (platformData.platform === 'youtube') {
 
     console.log(`アカウントリンク成功: platform=${platformData.platform}, userId=${userId}, username=${platformUsername}, id=${platformData.id}`);
 
-    const guild = client.guilds.cache.get(guildId);
     const settings = await loadServerSettings();
     const roleId = settings.servers[guildId]?.notificationRoles?.[platformData.platform];
 
