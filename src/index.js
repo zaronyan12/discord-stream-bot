@@ -1132,85 +1132,110 @@ client.on('messageCreate', async message => {
     }
 
     // メンバーにメッセージ送信
-    const members = await guild.members.fetch();
-    let successCount = 0;
-    let failCount = 0;
+    // メッセージを2000文字以内に分割する関数
+const chunkContent = (content, maxLength = 2000) => {
+  const chunks = [];
+  for (let i = 0; i < content.length; i += maxLength) {
+    chunks.push(content.slice(i, i + maxLength));
+  }
+  return chunks;
+};
+
+// メンバーにメッセージ送信
+const members = await guild.members.fetch();
+let successCount = 0;
+let failCount = 0;
 
 for (const member of members.values()) {
-    if (member.user.bot) continue;
+  if (member.user.bot) continue;
 
-    const memberRow = new ActionRowBuilder().addComponents(
-      buttons.map(button =>
-        ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id))
-      )
-    );
+  const memberRow = new ActionRowBuilder().addComponents(
+    buttons.map(button =>
+      ButtonBuilder.from(button).setCustomId(button.data.custom_id.replace(message.author.id, member.id))
+    )
+  );
 
+  try {
+    // メッセージを分割
+    const chunks = chunkContent(content);
+    for (let i = 0; i < chunks.length; i++) {
+      await member.send({
+        content: chunks[i],
+        components: i === chunks.length - 1 ? [memberRow] : [] // ボタンは最後のメッセージにのみ付ける
+      });
+    }
+    successCount++;
+  } catch (err) {
+    console.error(`メンバー ${member.id} へのDM失敗:`, err.message);
     try {
-      await member.send({ content, components: [memberRow] });
-      successCount++;
-    } catch (err) {
-      console.error(`メンバー ${member.id} へのDM失敗:`, err.message);
-      try {
-        const botMember = message.guild.members.me;
-        if (!message.guild.channels.cache.some(channel =>
-          channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) {
-          failCount++;
-          continue;
-        }
-
-        const channel = await message.guild.channels.create({
-          name: `welcome-${member.user.username}`,
-          type: ChannelType.GuildText,
-          permissionOverwrites: [
-            {
-              id: message.guild.id, // @everyone
-              deny: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.SendMessages,
-                PermissionsBitField.Flags.ReadMessageHistory // 修正: 追加の権限拒否
-              ]
-            },
-            {
-              id: member.id,
-              allow: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.SendMessages,
-                PermissionsBitField.Flags.ReadMessageHistory // 修正: 明示的に許可
-              ]
-            },
-            {
-              id: client.user.id,
-              allow: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.SendMessages,
-                PermissionsBitField.Flags.ReadMessageHistory,
-                PermissionsBitField.Flags.ManageChannels // 修正: ボットの管理権限追加
-              ]
-            }
-          ],
-          parent: null // 修正: 親カテゴリなしで独立させる
-        });
-
-        await channel.send({ content: `${member} ${content}`, components: [memberRow] });
-        welcomeChannels.set(member.id, channel.id); // チャンネルID保存
-        console.log(`[messageCreate] チャンネル作成成功: user=${member.id}, channel=${channel.id}`);
-        successCount++;
-      } catch (createErr) {
-        console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, createErr.message);
+      const botMember = message.guild.members.me;
+      if (!message.guild.channels.cache.some(channel =>
+        channel.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels))) {
         failCount++;
+        continue;
       }
+
+      const channel = await message.guild.channels.create({
+        name: `welcome-${member.user.username}`,
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          {
+            id: message.guild.id,
+            deny: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory
+            ]
+          },
+          {
+            id: member.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory
+            ]
+          },
+          {
+            id: client.user.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.ManageChannels
+            ]
+          }
+        ],
+        parent: null
+      });
+
+      // チャンネルにも分割メッセージを送信
+      const channelChunks = chunkContent(content);
+      for (let i = 0; i < channelChunks.length; i++) {
+        await channel.send({
+          content: i === 0 ? `${member} ${channelChunks[i]}` : channelChunks[i],
+          components: i === channelChunks.length - 1 ? [memberRow] : []
+        });
+      }
+      welcomeChannels.set(member.id, channel.id);
+      console.log(`[messageCreate] チャンネル作成成功: user=${member.id}, channel=${channel.id}`);
+      successCount++;
+    } catch (createErr) {
+      console.error(`チャンネル作成エラー (ユーザー: ${member.id}):`, createErr.message);
+      failCount++;
     }
   }
-    // Mazakari設定を保存
-    const mazakari = await loadMazakari();
-    mazakari.enabled[pending.guildId] = true;
-    mazakari.guilds[pending.guildId] = { message: content };
-    await saveConfigFile(MAZAKARI_FILE, mazakari);
+}
 
-    await message.reply({
-      content: `メッセージ送信を試みました。\n成功: ${successCount} メンバー\n失敗: ${failCount} メンバー`,
-      flags: [4096]
-    });
+// Mazakari設定を保存
+const mazakari = await loadMazakari();
+mazakari.enabled[pending.guildId] = true;
+mazakari.guilds[pending.guildId] = { message: content };
+await saveConfigFile(MAZAKARI_FILE, mazakari);
+
+await message.reply({
+  content: `メッセージ送信を試みました。\n成功: ${successCount} メンバー\n失敗: ${failCount} メンバー`,
+  flags: [4096]
+});
   } catch (err) {
     console.error('ファイル処理エラー:', err.message);
     await message.reply({
