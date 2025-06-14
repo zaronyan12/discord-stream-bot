@@ -1787,26 +1787,32 @@ async function handleSlashCommand(interaction) {
 }
 async function handleModalSubmit(interaction) {
   if (interaction.customId.startsWith('stream_url_modal_')) {
-    const [_, __, guildId, userId] = interaction.customId.split('_');
+    // 正しいインデックスで値を取得
+    const parts = interaction.customId.split('_');
+    const guildId = parts[3]; // 4番目の要素
+    const userId = parts[4];  // 5番目の要素
+
     const url = interaction.fields.getTextInputValue('stream_url').trim();
 
-const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
-if (!guild) {
-  console.error(`無効なサーバーID: ${guildId}`);
-  return interaction.reply({
-    content: '無効なサーバーIDです。',
-    ephemeral: true
-  });
-}
+    // サーバー取得
+    const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) {
+      console.error(`無効なサーバーID: ${guildId}`);
+      return interaction.reply({
+        content: '無効なサーバーIDです。',
+        ephemeral: true
+      });
+    }
 
-const platformData = parseStreamUrl(url);
-if (!platformData) {
-  console.warn(`無効なURL: ${url}`);
-  return interaction.reply({
-    content: '有効なYouTube、Twitch、またはTwitCastingのURLを入力してください。',
-    ephemeral: true
-  });
-}
+    // URL解析
+    const platformData = parseStreamUrl(url);
+    if (!platformData) {
+      console.warn(`無効なURL: ${url}`);
+      return interaction.reply({
+        content: '有効なYouTube、Twitch、またはTwitCastingのURLを入力してください。',
+        ephemeral: true
+      });
+    }
 console.log(`解析結果:`, platformData);
 
     const platformConfig = {
