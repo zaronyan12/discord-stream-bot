@@ -518,19 +518,17 @@ async function checkTwitchStreams() {
 
 async function getTwitCastingAccessToken() {
   try {
-    const credentials = `${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`;
-    const authHeader = `Basic ${Buffer.from(credentials).toString('base64')}`;
-    
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
-      {
-        grant_type: 'client_credentials'
-      },
+      new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: TWITCASTING_CLIENT_ID,
+        client_secret: TWITCASTING_CLIENT_SECRET
+      }),
       {
         headers: {
-          'Content-Type': 'application/json',
-          'X-Api-Version': '2.0',
-          'Authorization': authHeader
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Api-Version': '2.0'
         },
         timeout: 10000
       }
