@@ -552,7 +552,7 @@ async function checkTwitCastingStreams() {
     return;
   }
 
-  for (const twitcasters of twitcasters) {
+  for (const twitcaster of twitcasters) {
     try {
       console.log(`ツイキャス配信チェック: username=${twitcaster.twitcastingUsername}, id=${twitcaster.twitcastingId}`);
       const response = await axios.get(
@@ -1517,7 +1517,7 @@ async function handleSlashCommand(interaction) {
         .setCustomId('password')
         .setLabel('パスワード')
         .setStyle(TextInputStyle.Short)
-        ('管理者パスワードを入力')
+        .setPlaceholder('管理者パスワードを入力') 
         .setRequired(true);
 
       const messageInput = new TextInputBuilder()
