@@ -618,7 +618,6 @@ async function checkTwitCastingStreams() {
       }
     } catch (err) {
       console.error(`ツイキャスAPIエラー (${twitcaster.twitcastingUsername}):`, err.message);
-      });
     }
   }
 }
