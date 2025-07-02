@@ -515,28 +515,61 @@ async function checkTwitchStreams() {
     }
   }
 }
+async function getTwitCastingAccessToken() {
+  try {
+    const response = await axios.post(
+      'https://apiv2.twitcasting.tv/oauth2/access_token',
+      new URLSearchParams({
+        client_id: TWITCASTING_CLIENT_ID,
+        client_secret: TWITCASTING_CLIENT_SECRET,
+        grant_type: 'client_credentials'
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+    console.log('[TwitCasting] アクセストークン取得成功:', response.data.access_token);
+    return response.data.access_token;
+  } catch (err) {
+    console.error('[TwitCasting] アクセストークン取得エラー:', {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    throw err;
+  }
+}
 
 async function checkTwitCastingStreams() {
   const twitcasters = await loadTwitcasters();
-  const serverSettings = await loadServerSettings();
+  let accessToken;
+  try {
+    accessToken = await getTwitCastingAccessToken();
+  } catch (err) {
+    console.error('[TwitCasting] トークン取得に失敗したため、配信チェックをスキップ');
+    return;
+  }
 
-  for (const twitcaster of twitcasters) {
+  for (const twitcasters of twitcasters) {
     try {
-      console.log(`ツイキャス配信チェック: ${twitcaster.twitcastingUsername}`);
-      
+      console.log(`ツイキャス配信チェック: username=${twitcaster.twitcastingUsername}, id=${twitcaster.twitcastingId}`);
       const response = await axios.get(
-        `https://apiv2.twitcasting.tv/users/${twitcaster.twitcastingId}/current_live`, 
+        `https://apiv2.twitcasting.tv/users/${twitcaster.twitcastingId}/current_live`,
         {
           headers: {
-            'Client-ID': TWITCASTING_CLIENT_ID,
-            'Client-Secret': TWITCASTING_CLIENT_SECRET
-          }
+            'Accept': 'application/json',
+            'X-Api-Version': '2.0',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          timeout: 10000
         }
       );
-
+      console.log(`[TwitCasting] API応答: status=${response.status}, data=${JSON.stringify(response.data)}`);
       const currentStream = response.data.live;
       const cachedStream = activeStreams.twitcasting.get(twitcaster.twitcastingId);
-
+      // ... 配信チェックおよび通知送信の処理 ...
       if (currentStream) {
         const { id: liveId, title } = currentStream;
         
@@ -585,6 +618,11 @@ async function checkTwitCastingStreams() {
       }
     } catch (err) {
       console.error(`ツイキャスAPIエラー (${twitcaster.twitcastingUsername}):`, err.message);
+        message: err.message,
+        status: err.response?.status,
+        data: JSON.stringify(err.response?.data, null, 2),
+        stack: err.stack
+      });
     }
   }
 }
@@ -1047,12 +1085,17 @@ client.on('guildCreate', async guild => {
 });
 
 client.on('messageCreate', async message => {
-  if (message.author.bot || message.channel.type === ChannelType.DM) return;
-
+  if (message.author.bot || message.channel.type === ChannelType.DM) {
+    console.log(`[messageCreate] 無効なメッセージ: bot=${message.author.bot}, channelType=${message.channel.type}`);
+    return;
+  }
   const pending = pendingMazakari.get(message.author.id);
-  if (!pending || pending.channelId !== message.channel.id) return;
-
+  if (!pending || pending.channelId !== message.channel.id) {
+    console.log(`[messageCreate] Mazakari未リクエスト: user=${message.author.id}, channel=${message.channel.id}`);
+    return;
+  }
   if (!message.attachments.size) {
+    console.log(`[messageCreate] 添付ファイルなし: user=${message.author.id}`);
     await message.reply({
       content: '添付ファイルがありません。`.txt`ファイルを添付してください。',
       flags: [4096]
@@ -1062,27 +1105,31 @@ client.on('messageCreate', async message => {
 
   const attachment = message.attachments.first();
   if (!attachment.name.endsWith('.txt')) {
+    console.log(`[messageCreate] 無効なファイル形式: name=${attachment.name}`);
     await message.reply({
       content: '添付ファイルは`.txt`形式である必要があります。',
       flags: [4096]
     });
     return;
   }
+  console.log(`[messageCreate] 添付ファイル処理開始: url=${attachment.url}, name=${attachment.name}`);
 
   try {
     const response = await axios.get(attachment.url, {
       responseType: 'arraybuffer',
       timeout: 15000
     });
-    const content = iconv.decode(Buffer.from(response.data), 'utf-8').trim();
+    
+    console.log(`[messageCreate] axios応答: status=${response.status}, dataLength=${response.data?.byteLength || 0}`);
 
-    if (!content) {
-      await message.reply({
-        content: '添付ファイルが空です。有効なテキストを記載してください。',
-        flags: [4096]
-      });
-      pendingMazakari.delete(message.author.id);
-      return;
+    if (!response.data || response.data.byteLength === 0) {
+      throw new Error('ファイルが空またはデータが取得できませんでした');
+    }
+
+    const content = iconv.decode(Buffer.from(response.data), 'utf-8').trim();
+    console.log(`[messageCreate] デコード済みコンテンツ長: ${content.length}`);
+    if (content.length === 0) {
+      throw new Error('ファイル内容が空です');
     }
 
     if (content.length > 2000) {
@@ -1225,6 +1272,12 @@ client.on('messageCreate', async message => {
     });
   } catch (err) {
     console.error('ファイル処理エラー:', err.message);
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data ? JSON.stringify(err.response.data, null, 2) : null,
+      stack: err.stack,
+      url: attachment.url
+    });
     await message.reply({
       content: `ファイル処理中にエラーが発生しました: ${err.message}\nもう一度試してください。`,
       flags: [4096]
