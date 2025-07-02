@@ -520,12 +520,18 @@ const qs = require('querystring'); // 必要に応じてファイル先頭に追
 
 async function getTwitCastingAccessToken() {
   try {
+    //一時
+  　console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', TWITCASTING_CLIENT_ID);
+    console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', TWITCASTING_CLIENT_SECRET);
+    //一時
     const credentials = Buffer.from(`${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`).toString('base64');
 
     const body = qs.stringify({
       grant_type: 'client_credentials'
     });
-
+    //一時
+　　console.log('[DEBUG] TwitCasting token request body:', body);
+    //一時
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
       body,
@@ -560,6 +566,10 @@ async function checkTwitCastingStreams() {
     accessToken = await getTwitCastingAccessToken();
   } catch (err) {
     console.error('[TwitCasting] トークン取得に失敗したため、配信チェックをスキップ');
+    
+
+    console.log('[DEBUG] TwitCasting token request body:', body);
+    
     return;
   }
 
