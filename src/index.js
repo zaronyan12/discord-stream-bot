@@ -518,17 +518,16 @@ async function checkTwitchStreams() {
 
 async function getTwitCastingAccessToken() {
   try {
+        // 基本認証ヘッダーを作成
+    const credentials = Buffer.from(`${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`).toString('base64');
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
-      new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: TWITCASTING_CLIENT_ID,
-        client_secret: TWITCASTING_CLIENT_SECRET
-      }),
+      'grant_type=client_credentials', // 文字列形式で直接送信
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Api-Version': '2.0'
+          'X-Api-Version': '2.0',
+          'Authorization': `Basic ${credentials}`
         },
         timeout: 10000
       }
