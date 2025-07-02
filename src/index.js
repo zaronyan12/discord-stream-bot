@@ -516,17 +516,6 @@ async function checkTwitchStreams() {
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
 async function getTwitCastingAccessToken() {
   try {
     const authHeader = `Basic ${Buffer.from(`${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`).toString('base64')}`;
@@ -540,7 +529,7 @@ async function getTwitCastingAccessToken() {
       {
         headers: {
           'Content-Type': 'application/json', // JSON形式に変更
-          'X-Api-Version': '2.0' // APIバージョン指定を追加
+          'X-Api-Version': '2.0', // APIバージョン指定を追加
           'Authorization': authHeader
         }
       }
