@@ -524,15 +524,9 @@ async function getTwitCastingAccessToken() {
     // リクエストボディをURLSearchParamsで作成
     const params = new URLSearchParams();
     params.append('grant_type', 'client_credentials');
-    
-    // 追加パラメータ（エラーメッセージに基づき追加）
-    params.append('client_id', TWITCASTING_CLIENT_ID);
-    params.append('client_secret', TWITCASTING_CLIENT_SECRET);
-    params.append('redirect_uri', 'https://zaronyanbot.com:3001/callback'); 
-    
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
-      params.toString(), // URLSearchParamsを文字列に変換
+      params.toString(),
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
