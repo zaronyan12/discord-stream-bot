@@ -515,6 +515,18 @@ async function checkTwitchStreams() {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
 async function getTwitCastingAccessToken() {
   try {
     const response = await axios.post(
@@ -526,7 +538,8 @@ async function getTwitCastingAccessToken() {
       }),
       {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/json', // JSON形式に変更
+          'X-Api-Version': '2.0' // APIバージョン指定を追加
         }
       }
     );
@@ -1153,17 +1166,17 @@ client.on('messageCreate', async message => {
         .setCustomId(`link_youtube_${pending.guildId}_${message.author.id}`)
         .setLabel('YouTube通知')
         .setStyle(ButtonStyle.Danger)
-        .setEmoji(''),
+        .setEmoji('▶️'),
       new ButtonBuilder()
         .setCustomId(`link_twitch_${pending.guildId}_${message.author.id}`)
         .setLabel('Twitch通知')
         .setStyle(ButtonStyle.Primary)
-        .setEmoji(''),
+        .setEmoji('🔴'),
       new ButtonBuilder()
         .setCustomId(`link_stream_${pending.guildId}_${message.author.id}`)
         .setLabel('連携してないorツイキャス')
         .setStyle(ButtonStyle.Success)
-        .setEmoji('')
+        .setEmoji('📡')
     ];
 
     const chunkContent = (content, maxLength = 2000) => {
