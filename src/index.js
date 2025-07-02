@@ -518,20 +518,21 @@ async function checkTwitchStreams() {
 
 async function getTwitCastingAccessToken() {
   try {
-    const authHeader = `Basic ${Buffer.from(`${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`).toString('base64')}`;
+    const credentials = `${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`;
+    const authHeader = `Basic ${Buffer.from(credentials).toString('base64')}`;
+    
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
-      new URLSearchParams({
-        client_id: TWITCASTING_CLIENT_ID,
-        client_secret: TWITCASTING_CLIENT_SECRET,
+      {
         grant_type: 'client_credentials'
-      }),
+      },
       {
         headers: {
-          'Content-Type': 'application/json', // JSON形式に変更
-          'X-Api-Version': '2.0', // APIバージョン指定を追加
+          'Content-Type': 'application/json',
+          'X-Api-Version': '2.0',
           'Authorization': authHeader
-        }
+        },
+        timeout: 10000
       }
     );
     console.log('[TwitCasting] アクセストークン取得成功:', response.data.access_token);
@@ -540,13 +541,8 @@ async function getTwitCastingAccessToken() {
     // 詳細なエラーログを出力
     const errorDetails = {
       message: err.message,
-      status: err.response?.status,
-      data: err.response?.data,
-      config: {
-        url: err.config?.url,
-        method: err.config?.method,
-        data: err.config?.data
-      }
+      status: err.response ? err.response.status : undefined,
+      data: err.response ? err.response.data : null
     };
     
     console.error('[TwitCasting] アクセストークン取得エラー:', JSON.stringify(errorDetails, null, 2));
