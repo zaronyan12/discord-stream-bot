@@ -518,11 +518,21 @@ async function checkTwitchStreams() {
 
 async function getTwitCastingAccessToken() {
   try {
-        // 基本認証ヘッダーを作成
+    // 基本認証ヘッダーを作成
     const credentials = Buffer.from(`${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`).toString('base64');
+    
+    // リクエストボディをURLSearchParamsで作成
+    const params = new URLSearchParams();
+    params.append('grant_type', 'client_credentials');
+    
+    // 追加パラメータ（エラーメッセージに基づき追加）
+    params.append('client_id', TWITCASTING_CLIENT_ID);
+    params.append('client_secret', TWITCASTING_CLIENT_SECRET);
+    params.append('redirect_uri', 'https://zaronyanbot.com:3001/callback'); 
+    
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
-      'grant_type=client_credentials', // 文字列形式で直接送信
+      params.toString(), // URLSearchParamsを文字列に変換
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
