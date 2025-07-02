@@ -1267,11 +1267,13 @@ client.on('messageCreate', async message => {
     });
   } catch (err) {
 console.error('ファイル処理エラー:', {
-  message: err.message,
-  status: err.response?.status,
-  data: err.response?.data ? JSON.stringify(err.response.data, null, 2) : null,
-  stack: err.stack,
-  url: attachment.url
+    message: err.message,
+    status: err.response ? err.response.status : undefined,
+    data: err.response && err.response.data 
+      ? JSON.stringify(err.response.data, null, 2) 
+      : null,
+    stack: err.stack,
+    url: attachment.url
 });
     await message.reply({
       content: `ファイル処理中にエラーが発生しました: ${err.message}\nもう一度試してください。`,
