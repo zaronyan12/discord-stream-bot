@@ -519,11 +519,12 @@
   const qs = require('querystring'); // 必要に応じてファイル先頭に追加
 
 async function getTwitCastingAccessToken() {
-    console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', process.env.TWITCASTING_CLIENT_ID || 'undefined');
+
+  try {
+        console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', process.env.TWITCASTING_CLIENT_ID || 'undefined');
     console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', process.env.TWITCASTING_CLIENT_SECRET || 'undefined');
     console.log('[ENV DEBUG] TWITCASTING_REDIRECT_URI:', process.env.TWITCASTING_REDIRECT_URI || 'undefined');
     console.log('[ENV DEBUG] TWITCASTING_CODE:', code || 'undefined');
-  try {
     if (!process.env.TWITCASTING_CLIENT_ID || !process.env.TWITCASTING_CLIENT_SECRET) {
       throw new Error('TWITCASTING_CLIENT_ID or TWITCASTING_CLIENT_SECRET is not set in .env file');
     }
