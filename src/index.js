@@ -517,47 +517,55 @@
   }
   
   const qs = require('querystring'); // 必要に応じてファイル先頭に追加
-  
-  async function getTwitCastingAccessToken() {
-    try {
-      //一時
-      console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', TWITCASTING_CLIENT_ID);
-      console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', TWITCASTING_CLIENT_SECRET);
-      //一時
-      const credentials = Buffer.from(`${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`).toString('base64');
-  
-      const body = qs.stringify({
-        grant_type: 'client_credentials'
-      });
-      //一時
-      console.log('[DEBUG] TwitCasting token request body:', body);
-      //一時
-      const response = await axios.post(
-        'https://apiv2.twitcasting.tv/oauth2/access_token',
-        body,
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Api-Version': '2.0',
-            'Authorization': `Basic ${credentials}`
-          },
-          timeout: 10000
-        }
-      );
-  
-      console.log('[TwitCasting] アクセストークン取得成功:', response.data.access_token);
-      return response.data.access_token;
-    } catch (err) {
-      const errorDetails = {
-        message: err.message,
-        status: err.response?.status,
-        data: err.response?.data || null
-      };
-  
-      console.error('[TwitCasting] アクセストークン取得エラー:', JSON.stringify(errorDetails, null, 2));
-      throw err;
-    }
+
+async function getTwitCastingAccessToken() {
+  try {
+    //一時
+    console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', TWITCASTING_CLIENT_ID);
+    console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', TWITCASTING_CLIENT_SECRET);
+
+    const body = qs.stringify({
+      grant_type: 'client_credentials',
+      client_id: TWITCASTING_CLIENT_ID,
+      client_secret: TWITCASTING_CLIENT_SECRET
+    });
+
+    console.log('[DEBUG] TwitCasting token request:', {
+      body,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'X-Api-Version': '2.0'
+      }
+    });
+　　//一時
+    const response = await axios.post(
+      'https://apiv2.twitcasting.tv/oauth2/access_token',
+      qs.stringify({
+        grant_type: 'client_credentials',
+        client_id: TWITCASTING_CLIENT_ID,
+        client_secret: TWITCASTING_CLIENT_SECRET
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'X-Api-Version': '2.0'
+        },
+        timeout: 10000
+      }
+    );
+    console.log('[TwitCasting] アクセストークン取得成功:', response.data.access_token);
+    return response.data.access_token;
+  } catch (err) {
+    console.error('[TwitCasting] アクセストークン取得エラー:', {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    throw err;
   }
+}
   
   async function checkTwitCastingStreams() {
     const twitcasters = await loadTwitcasters();
@@ -566,10 +574,6 @@
       accessToken = await getTwitCastingAccessToken();
     } catch (err) {
       console.error('[TwitCasting] トークン取得に失敗したため、配信チェックをスキップ');
-      
-  
-      console.log('[DEBUG] TwitCasting token request body:', body);
-      
       return;
     }
   
