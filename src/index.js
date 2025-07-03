@@ -532,7 +532,7 @@ async function getTwitCastingAccessToken() {
       grant_type: 'client_credentials', // まずはclient_credentialsで試す
       client_id: process.env.TWITCASTING_CLIENT_ID,
       client_secret: process.env.TWITCASTING_CLIENT_SECRET,
-      redirect_uri: process.env.TWITCASTING_REDIRECT_URI // https://zaronyanbot.com:3001/callback
+      redirect_uri: process.env.REDIRECT_URI // https://zaronyanbot.com:3001/callback
     });
 
     console.log('[DEBUG] TwitCasting token request:', {
