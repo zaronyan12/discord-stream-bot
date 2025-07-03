@@ -519,17 +519,17 @@
   const qs = require('querystring'); // 必要に応じてファイル先頭に追加
 
 async function getTwitCastingAccessToken() {
-  try {
     console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', process.env.TWITCASTING_CLIENT_ID || 'undefined');
     console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', process.env.TWITCASTING_CLIENT_SECRET || 'undefined');
     console.log('[ENV DEBUG] TWITCASTING_REDIRECT_URI:', process.env.TWITCASTING_REDIRECT_URI || 'undefined');
-
+    console.log('[ENV DEBUG] TWITCASTING_CODE:', code || 'undefined');
+  try {
     if (!process.env.TWITCASTING_CLIENT_ID || !process.env.TWITCASTING_CLIENT_SECRET) {
       throw new Error('TWITCASTING_CLIENT_ID or TWITCASTING_CLIENT_SECRET is not set in .env file');
     }
 
     const body = qs.stringify({
-      grant_type: 'client_credentials', // まずはclient_credentialsで試す
+      grant_type: 'authorization_code', // まずはclient_credentialsで試す
       client_id: process.env.TWITCASTING_CLIENT_ID,
       client_secret: process.env.TWITCASTING_CLIENT_SECRET,
       redirect_uri: process.env.REDIRECT_URI // https://zaronyanbot.com:3001/callback
