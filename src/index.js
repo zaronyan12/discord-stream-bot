@@ -519,10 +519,22 @@
   const qs = require('querystring'); // 必要に応じてファイル先頭に追加
 
 async function getTwitCastingAccessToken() {
-  //一時
-    console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', TWITCASTING_CLIENT_ID);
-    console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', TWITCASTING_CLIENT_SECRET);
+  try {
+    console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', process.env.TWITCASTING_CLIENT_ID || 'undefined');
+    console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', process.env.TWITCASTING_CLIENT_SECRET || 'undefined');
+
+    if (!process.env.TWITCASTING_CLIENT_ID || !process.env.TWITCASTING_CLIENT_SECRET) {
+      throw new Error('TWITCASTING_CLIENT_ID or TWITCASTING_CLIENT_SECRET is not set in .env file');
+    }
+
+    const body = qs.stringify({
+      grant_type: 'client_credentials',
+      client_id: process.env.TWITCASTING_CLIENT_ID,
+      client_secret: process.env.TWITCASTING_CLIENT_SECRET
+    });
+
     console.log('[DEBUG] TwitCasting token request:', {
+      url: 'https://apiv2.twitcasting.tv/oauth2/access_token',
       body,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -530,20 +542,10 @@ async function getTwitCastingAccessToken() {
         'X-Api-Version': '2.0'
       }
     });
-  //一時
-  try {
-    const body = qs.stringify({
-      grant_type: 'client_credentials',
-      client_id: TWITCASTING_CLIENT_ID,
-      client_secret: TWITCASTING_CLIENT_SECRET
-    });
+
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
-      qs.stringify({
-        grant_type: 'client_credentials',
-        client_id: TWITCASTING_CLIENT_ID,
-        client_secret: TWITCASTING_CLIENT_SECRET
-      }),
+      body,
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -553,13 +555,14 @@ async function getTwitCastingAccessToken() {
         timeout: 10000
       }
     );
+
     console.log('[TwitCasting] アクセストークン取得成功:', response.data.access_token);
     return response.data.access_token;
   } catch (err) {
     console.error('[TwitCasting] アクセストークン取得エラー:', {
       message: err.message,
       status: err.response?.status,
-      data: err.response?.data
+      data: err.response?.data ? JSON.stringify(err.response.data, null, 2) : null
     });
     throw err;
   }
