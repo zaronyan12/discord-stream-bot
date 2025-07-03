@@ -519,17 +519,9 @@
   const qs = require('querystring'); // 必要に応じてファイル先頭に追加
 
 async function getTwitCastingAccessToken() {
-  try {
-    //一時
+  //一時
     console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', TWITCASTING_CLIENT_ID);
     console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', TWITCASTING_CLIENT_SECRET);
-
-    const body = qs.stringify({
-      grant_type: 'client_credentials',
-      client_id: TWITCASTING_CLIENT_ID,
-      client_secret: TWITCASTING_CLIENT_SECRET
-    });
-
     console.log('[DEBUG] TwitCasting token request:', {
       body,
       headers: {
@@ -538,7 +530,13 @@ async function getTwitCastingAccessToken() {
         'X-Api-Version': '2.0'
       }
     });
-　　//一時
+  //一時
+  try {
+    const body = qs.stringify({
+      grant_type: 'client_credentials',
+      client_id: TWITCASTING_CLIENT_ID,
+      client_secret: TWITCASTING_CLIENT_SECRET
+    });
     const response = await axios.post(
       'https://apiv2.twitcasting.tv/oauth2/access_token',
       qs.stringify({
