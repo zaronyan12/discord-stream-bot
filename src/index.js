@@ -434,6 +434,108 @@
     res.status(405).send('GETメソッドはサポートされていません。POSTを使用してください。');
   });
   
+  
+  
+  // 追加: TwitCasting Webhookハンドラー (開始)
+// ==============================================
+app.post('/webhook/twitcasting', async (req, res) => {
+  try {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    console.log('TwitCasting Webhook受信 (POST):', { clientIp, body: req.body });
+    
+    // IP制限（ローカルと内部IPのみ許可）
+    if (clientIp !== '::1' && clientIp !== '127.0.0.1' && clientIp !== '10.138.0.4') {
+      console.warn('不正な送信元IP:', clientIp);
+      return res.status(403).send('不正な送信元IPです');
+    }
+
+    const { userId, userName, liveId, title } = req.body;
+    if (!userId || !userName || !liveId || !title) {
+      console.warn('無効なWebhookデータ受信:', { userId, userName, liveId, title });
+      return res.status(200).end();
+    }
+
+    console.log('TwitCasting Webhook受信:', { userId, userName, liveId, title });
+
+    const twitcasters = await loadTwitcasters(true);
+    const twitcaster = twitcasters.find(t => t.twitcastingId === userId);
+    if (!twitcaster) {
+      console.log(`ユーザー未登録: ${userId}`);
+      return res.status(200).end();
+    }
+
+    console.log(`[webhook/twitcasting] 通知対象: username=${twitcaster.twitcastingUsername}, guildIds=${twitcaster.guildIds?.join(', ') || 'なし'}`);
+
+    // 重複通知チェック
+    const cachedStream = activeStreams.twitcasting.get(userId);
+    if (cachedStream && cachedStream.liveId === liveId) {
+      console.log(`重複通知をスキップ: ${twitcaster.twitcastingUsername}, ${liveId}`);
+      return res.status(200).end();
+    }
+
+    const serverSettings = await loadServerSettings();
+    const notificationPromises = [];
+    for (const guildId of twitcaster.guildIds || []) {
+      const settings = serverSettings.servers?.[guildId];
+      if (!settings) {
+        console.warn(`[webhook/twitcasting] ギルド設定が見つかりません: guild=${guildId}`);
+        continue;
+      }
+      if (!settings.channelId) {
+        console.warn(`[webhook/twitcasting] 通知チャンネル未設定: guild=${guildId}`);
+        continue;
+      }
+      if (!settings.notificationRoles?.twitcasting) {
+        console.warn(`[webhook/twitcasting] ツイキャス通知ロール未設定: guild=${guildId}`);
+        continue;
+      }
+      if (!checkKeywords(title, settings.keywords)) {
+        console.log(`[webhook/twitcasting] キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
+        continue;
+      }
+
+      let discordUsername = twitcaster.twitcastingUsername;
+      try {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild && twitcaster.discordId) {
+          const member = await guild.members.fetch(twitcaster.discordId).catch(() => null);
+          if (member) discordUsername = member.user.username;
+        }
+      } catch (err) {
+        console.error(`Discordユーザー名取得エラー: ${twitcaster.discordId}`, err.message);
+      }
+
+      console.log(`[webhook/twitcasting] 通知送信準備: guild=${guildId}, channel=${settings.channelId}`);
+      notificationPromises.push(
+        sendStreamNotification({
+          platform: 'twitcasting',
+          username: twitcaster.twitcastingUsername,
+          discordUsername,
+          title,
+          url: `https://twitcasting.tv/${twitcaster.twitcastingId}`,
+          guildId,
+          channelId: settings.channelId,
+          roleId: settings.notificationRoles.twitcasting
+        })
+      );
+    }
+
+    await Promise.all(notificationPromises);
+    activeStreams.twitcasting.set(userId, { liveId, title, notifiedAt: Date.now() });
+
+    res.status(200).end();
+  } catch (err) {
+    console.error('TwitCasting Webhook処理エラー:', {
+      message: err.message,
+      stack: err.stack,
+      body: req.body
+    });
+    res.status(500).send('サーバーエラーが発生しました');
+  }
+});
+// 追加: TwitCasting Webhookハンドラー (終了)
+// ==============================================
+
   // ==============================================
   // 配信チェック関数
   // ==============================================
@@ -516,140 +618,6 @@
     }
   }
   
-  const qs = require('querystring'); // 必要に応じてファイル先頭に追加
-
-async function getTwitCastingAccessToken() {
-
-  try {
-        console.log('[ENV DEBUG] TWITCASTING_CLIENT_ID:', process.env.TWITCASTING_CLIENT_ID || 'undefined');
-    console.log('[ENV DEBUG] TWITCASTING_CLIENT_SECRET:', process.env.TWITCASTING_CLIENT_SECRET || 'undefined');
-    console.log('[ENV DEBUG] TWITCASTING_REDIRECT_URI:', process.env.TWITCASTING_REDIRECT_URI || 'undefined');
-    console.log('[ENV DEBUG] TWITCASTING_CODE:', code || 'undefined');
-    if (!process.env.TWITCASTING_CLIENT_ID || !process.env.TWITCASTING_CLIENT_SECRET) {
-      throw new Error('TWITCASTING_CLIENT_ID or TWITCASTING_CLIENT_SECRET is not set in .env file');
-    }
-
-    const body = qs.stringify({
-      grant_type: 'authorization_code', // まずはclient_credentialsで試す
-      client_id: process.env.TWITCASTING_CLIENT_ID,
-      client_secret: process.env.TWITCASTING_CLIENT_SECRET,
-      redirect_uri: process.env.REDIRECT_URI // https://zaronyanbot.com:3001/callback
-    });
-
-    console.log('[DEBUG] TwitCasting token request:', {
-      url: 'https://apiv2.twitcasting.tv/oauth2/access_token',
-      body,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-        'X-Api-Version': '2.0'
-      }
-    });
-
-    const response = await axios.post(
-      'https://apiv2.twitcasting.tv/oauth2/access_token',
-      body,
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-          'X-Api-Version': '2.0'
-        },
-        timeout: 10000
-      }
-    );
-
-    console.log('[TwitCasting] アクセストークン取得成功:', response.data.access_token);
-    return response.data.access_token;
-  } catch (err) {
-    console.error('[TwitCasting] アクセストークン取得エラー:', {
-      message: err.message,
-      status: err.response?.status,
-      data: err.response?.data ? JSON.stringify(err.response.data, null, 2) : null
-    });
-    throw err;
-  }
-}
-  
-  async function checkTwitCastingStreams() {
-    const twitcasters = await loadTwitcasters();
-    let accessToken;
-    try {
-      accessToken = await getTwitCastingAccessToken();
-    } catch (err) {
-      console.error('[TwitCasting] トークン取得に失敗したため、配信チェックをスキップ');
-      return;
-    }
-  
-    for (const twitcaster of twitcasters) {
-      try {
-        console.log(`ツイキャス配信チェック: username=${twitcaster.twitcastingUsername}, id=${twitcaster.twitcastingId}`);
-        const response = await axios.get(
-          `https://apiv2.twitcasting.tv/users/${twitcaster.twitcastingId}/current_live`,
-          {
-            headers: {
-              'Accept': 'application/json',
-              'X-Api-Version': '2.0',
-              'Authorization': `Bearer ${accessToken}`
-            },
-            timeout: 10000
-          }
-        );
-        console.log(`[TwitCasting] API応答: status=${response.status}, data=${JSON.stringify(response.data)}`);
-        const currentStream = response.data.live;
-        const cachedStream = activeStreams.twitcasting.get(twitcaster.twitcastingId);
-        // ... 配信チェックおよび通知送信の処理 ...
-        if (currentStream) {
-          const { id: liveId, title } = currentStream;
-          
-          if (!cachedStream || cachedStream.liveId !== liveId) {
-            // ユーザーが参加しているサーバーのみに通知を送信
-            for (const guildId of twitcaster.guildIds || []) {
-              const settings = serverSettings.servers?.[guildId];
-              if (!settings || !settings.channelId || !settings.notificationRoles?.twitcasting) {
-                console.warn(`通知設定が不完全: guild=${guildId}`);
-                continue;
-              }
-  
-              if (!checkKeywords(title, settings.keywords)) {
-                console.log(`キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
-                continue;
-              }
-  
-              let discordUsername = twitcaster.twitcastingUsername;
-              try {
-                const guild = client.guilds.cache.get(guildId);
-                if (guild && twitcaster.discordId) {
-                  const member = await guild.members.fetch(twitcaster.discordId).catch(() => null);
-                  if (member) discordUsername = member.user.username;
-                }
-              } catch (err) {
-                console.error(`Discordユーザー名取得エラー: ${twitcaster.discordId}`, err.message);
-              }
-  
-              await sendStreamNotification({
-                platform: 'twitcasting',
-                username: twitcaster.twitcastingUsername,
-                discordUsername,
-                title,
-                url: `https://twitcasting.tv/${twitcaster.twitcastingId}`,
-                guildId,
-                channelId: settings.channelId,
-                roleId: settings.notificationRoles.twitcasting
-              });
-            }
-  
-            activeStreams.twitcasting.set(twitcaster.twitcastingId, { liveId, title, notifiedAt: Date.now() });
-          }
-        } else if (cachedStream) {
-          activeStreams.twitcasting.delete(twitcaster.twitcastingId);
-          console.log(`ライブ配信終了: ${twitcaster.twitcastingUsername}`);
-        }
-      } catch (err) {
-        console.error(`ツイキャスAPIエラー (${twitcaster.twitcastingUsername}):`, err.message);
-      }
-    }
-  }
   
   // ==============================================
   // その他の関数
