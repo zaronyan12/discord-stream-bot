@@ -975,13 +975,11 @@ app.post('/webhook/twitcasting', async (req, res) => {
   
       console.log('ライブ配信監視を開始します');
       setInterval(checkTwitchStreams, 60 * 1000);
-      setInterval(checkTwitCastingStreams, 5 * 60 * 1000);
       await renewSubscriptions();
       setInterval(renewSubscriptions, 24 * 60 * 60 * 1000);
   
       await Promise.all([
-        checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err)),
-        checkTwitCastingStreams().catch(err => console.error('初回ツイキャスチェックエラー:', err))
+        checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err))
       ]);
     } catch (err) {
       console.error('初期化エラー:', {
