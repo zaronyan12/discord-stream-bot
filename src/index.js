@@ -1,4 +1,4 @@
-  const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, TextInputBuilder, TextInputStyle, ModalBuilder, ChannelType } = require('discord.js');
+  const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, TextInputBuilder, TextInputStyle, ModalBuilder, ChannelType, AttachmentBuilder } = require('discord.js');
   const express = require('express');
   const axios = require('axios');
   const iconv = require('iconv-lite');
@@ -288,8 +288,6 @@
    * @param {string} [options.discordUsername] Discordユーザー名
    * @returns {Promise<void>}
    */
-const { AttachmentBuilder, PermissionsBitField } = require('discord.js');
-
 async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, thumbnailUrl }) {
   const platformEmoji = {
     twitch: '🔴',
