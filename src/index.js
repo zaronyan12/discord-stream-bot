@@ -334,7 +334,16 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     });
   }
 }
-  
+    /**
+   * キーワードチェック
+   * @param {string} title 配信タイトル
+   * @param {string[]} keywords キーワード配列
+   * @returns {boolean} キーワードに一致するか
+   */
+  function checkKeywords(title, keywords) {
+    if (!keywords || keywords.length === 0) return true;
+    return keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()));
+  }
   // ==============================================
   // Webhookハンドラー
   // ==============================================
