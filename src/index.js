@@ -313,8 +313,11 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     return;
   }
 
-  // メッセージ部分（ディスコード名を使用）
-  const message = `${platformEmoji[platform]} **${discordUsername}** が${platformName[platform]}でライブ配信中！\n**タイトル:** ${title}\n${url}`;
+  // ディスコードの表示名を取得（既にcheckTwitchStreamsで設定済み）
+  let displayName = discordUsername;
+
+  // メッセージ部分（表示名とTwitchチャンネル情報を追加）
+  const message = `${platformEmoji[platform]} **${displayName}** が${platformName[platform]}でライブ配信中！\n**タイトル:** ${title}\n**チャンネル:** ${username}\n${url}`;
 
   try {
     // サムネイルを添付ファイルとして送信
@@ -324,7 +327,7 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     } else {
       await channel.send({ content: message });
     }
-    console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
+    console.log(`${platformName[platform]}通知送信成功: Twitchチャンネル=${username}, 表示名=${displayName}, guildId=${guildId}, channelId=${channelId}`);
   } catch (err) {
     console.error(`通知送信エラー: guildId=${guildId}, channelId=${channelId}`, {
       message: err.message,
@@ -601,7 +604,10 @@ async function checkTwitchStreams() {
               const guild = client.guilds.cache.get(guildId);
               if (guild && streamer.discordId) {
                 const member = await guild.members.fetch(streamer.discordId).catch(() => null);
-                if (member) discordUsername = member.user.username;
+                if (member) discordUsername = member.displayName || member.user.username;
+                console.log(`表示名取得: ${streamer.discordId} -> ${discordUsername}`);
+              } else {
+                console.log(`表示名未取得: discordId=${streamer.discordId}, guildId=${guildId}`);
               }
             } catch (err) {
               console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
@@ -626,7 +632,7 @@ async function checkTwitchStreams() {
 
             await sendStreamNotification({
               platform: 'twitch',
-              username: streamer.twitchUsername,
+              username: streamer.twitchUsername, // Twitchチャンネル名（APIから取得）
               discordUsername,
               title,
               url: `https://www.twitch.tv/${streamer.twitchUsername}`,
