@@ -313,26 +313,16 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     return;
   }
 
-  // メッセージ部分（タイトルとURLをテキストで表示）
+  // メッセージ部分（ディスコード名を使用）
   const message = `${platformEmoji[platform]} **${discordUsername}** が${platformName[platform]}でライブ配信中！\n**タイトル:** ${title}\n${url}`;
-
-  // Discord Embedを作成（フィールドのみ）
-  const embed = {
-    color: platform === 'twitch' ? 0x6441A4 : platform === 'youtube' ? 0xFF0000 : 0x1DA1F2,
-    fields: [
-      { name: '\u200B', value: `**${discordUsername} - ${platformName[platform]}**`, inline: false },
-      { name: '\u200B', value: title, inline: false }
-    ],
-    timestamp: new Date()
-  };
 
   try {
     // サムネイルを添付ファイルとして送信
     if (thumbnailUrl) {
       const attachment = new AttachmentBuilder(thumbnailUrl.replace('{width}', '1280').replace('{height}', '720'), { name: 'thumbnail.jpg' });
-      await channel.send({ content: message, embeds: [embed], files: [attachment] });
+      await channel.send({ content: message, files: [attachment] });
     } else {
-      await channel.send({ content: message, embeds: [embed] });
+      await channel.send({ content: message });
     }
     console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
   } catch (err) {
