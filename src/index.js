@@ -307,18 +307,25 @@
       return;
     }
   
-    const message = `${platformEmoji[platform]} ${discordUsername} が${platformName[platform]}でライブ配信中！\nタイトル: ${title}\n${url}`;
-    
-    try {
-      await channel.send(message);
-      console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
-    } catch (err) {
-      console.error(`通知送信エラー: guildId=${guildId}, channelId=${channelId}`, {
-        message: err.message,
-        stack: err.stack
-      });
-    }
+    // Discord Embedを作成
+  const embed = {
+    color: platform === 'twitch' ? 0x6441A4 : platform === 'youtube' ? 0xFF0000 : 0x1DA1F2,
+    title: `${platformEmoji[platform]} ${discordUsername} が${platformName[platform]}でライブ配信中！`,
+    description: `タイトル: ${title}\n[視聴する](${url})`,
+    thumbnail: thumbnailUrl ? { url: thumbnailUrl.replace('{width}', '320').replace('{height}', '180') } : undefined,
+    timestamp: new Date()
+  };
+
+  try {
+    await channel.send({ content: roleId ? `<@&${roleId}>` : undefined, embeds: [embed] });
+    console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
+  } catch (err) {
+    console.error(`通知送信エラー: guildId=${guildId}, channelId=${channelId}`, {
+      message: err.message,
+      stack: err.stack
+    });
   }
+}
   /**
    * キーワードチェック
    * @param {string} title 配信タイトル
@@ -539,84 +546,85 @@ app.post('/webhook/twitcasting', async (req, res) => {
   // ==============================================
   // 配信チェック関数
   // ==============================================
-  async function checkTwitchStreams() {
-    const streamers = await loadStreamers();
-    const serverSettings = await loadServerSettings();
-    
-    let accessToken;
+
+async function checkTwitchStreams() {
+  const streamers = await loadStreamers();
+  const serverSettings = await loadServerSettings();
+  
+  let accessToken;
+  try {
+    accessToken = await getTwitchAccessToken();
+  } catch (err) {
+    console.error('Twitchアクセストークン取得失敗、チェックをスキップ');
+    return;
+  }
+
+  for (const streamer of streamers) {
     try {
-      accessToken = await getTwitchAccessToken();
-    } catch (err) {
-      console.error('Twitchアクセストークン取得失敗、チェックをスキップ');
-      return;
-    }
-  
-    for (const streamer of streamers) {
-      try {
-        console.log(`Twitch配信チェック: ${streamer.twitchUsername}`);
-        
-        const response = await axios.get('https://api.twitch.tv/helix/streams', {
-          params: { user_id: streamer.twitchId },
-          headers: {
-            'Client-ID': TWITCH_CLIENT_ID,
-            'Authorization': `Bearer ${accessToken}`
-          }
-        });
-  
-        const currentStream = response.data.data[0] || null;
-        const cachedStream = activeStreams.twitch.get(streamer.twitchId);
-  
-        if (currentStream) {
-          const { id: streamId, title } = currentStream;
-          
-          if (!cachedStream || cachedStream.streamId !== streamId) {
-            // ユーザーが参加しているサーバーのみに通知を送信
-            for (const guildId of streamer.guildIds || []) {
-              const settings = serverSettings.servers?.[guildId];
-              if (!settings || !settings.channelId || !settings.notificationRoles?.twitch) {
-                console.warn(`通知設定が不完全: guild=${guildId}`);
-                continue;
-              }
-  
-              if (!checkKeywords(title, settings.keywords)) {
-                console.log(`キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
-                continue;
-              }
-  
-              let discordUsername = streamer.twitchUsername;
-              try {
-                const guild = client.guilds.cache.get(guildId);
-                if (guild && streamer.discordId) {
-                  const member = await guild.members.fetch(streamer.discordId).catch(() => null);
-                  if (member) discordUsername = member.user.username;
-                }
-              } catch (err) {
-                console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
-              }
-  
-              await sendStreamNotification({
-                platform: 'twitch',
-                username: streamer.twitchUsername,
-                discordUsername,
-                title,
-                url: `https://www.twitch.tv/${streamer.twitchUsername}`,
-                guildId,
-                channelId: settings.channelId,
-                roleId: settings.notificationRoles.twitch
-              });
-            }
-  
-            activeStreams.twitch.set(streamer.twitchId, { streamId, title, notifiedAt: Date.now() });
-          }
-        } else if (cachedStream) {
-          activeStreams.twitch.delete(streamer.twitchId);
-          console.log(`ライブ配信終了: ${streamer.twitchUsername}`);
+      console.log(`Twitch配信チェック: ${streamer.twitchUsername}`);
+      
+      const response = await axios.get('https://api.twitch.tv/helix/streams', {
+        params: { user_id: streamer.twitchId },
+        headers: {
+          'Client-ID': TWITCH_CLIENT_ID,
+          'Authorization': `Bearer ${accessToken}`
         }
-      } catch (err) {
-        console.error(`Twitch APIエラー (${streamer.twitchUsername}):`, err.message);
+      });
+
+      const currentStream = response.data.data[0] || null;
+      const cachedStream = activeStreams.twitch.get(streamer.twitchId);
+
+      if (currentStream) {
+        const { id: streamId, title, thumbnail_url } = currentStream;
+        
+        if (!cachedStream || cachedStream.streamId !== streamId) {
+          for (const guildId of streamer.guildIds || []) {
+            const settings = serverSettings.servers?.[guildId];
+            if (!settings || !settings.channelId || !settings.notificationRoles?.twitch) {
+              console.warn(`通知設定が不完全: guild=${guildId}`);
+              continue;
+            }
+
+            if (!checkKeywords(title, settings.keywords)) {
+              console.log(`キーワード不一致: guild=${guildId}, title=${title}, keywords=${settings.keywords?.join(', ') || 'なし'}`);
+              continue;
+            }
+
+            let discordUsername = streamer.twitchUsername;
+            try {
+              const guild = client.guilds.cache.get(guildId);
+              if (guild && streamer.discordId) {
+                const member = await guild.members.fetch(streamer.discordId).catch(() => null);
+                if (member) discordUsername = member.user.username;
+              }
+            } catch (err) {
+              console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
+            }
+
+            await sendStreamNotification({
+              platform: 'twitch',
+              username: streamer.twitchUsername,
+              discordUsername,
+              title,
+              url: `https://www.twitch.tv/${streamer.twitchUsername}`,
+              guildId,
+              channelId: settings.channelId,
+              roleId: settings.notificationRoles.twitch,
+              thumbnailUrl: thumbnail_url // サムネイルURLを追加
+            });
+          }
+
+          activeStreams.twitch.set(streamer.twitchId, { streamId, title, thumbnail_url, notifiedAt: Date.now() });
+        }
+      } else if (cachedStream) {
+        activeStreams.twitch.delete(streamer.twitchId);
+        console.log(`ライブ配信終了: ${streamer.twitchUsername}`);
       }
+    } catch (err) {
+      console.error(`Twitch APIエラー (${streamer.twitchUsername}):`, err.message);
     }
   }
+}
   
   
   // ==============================================
