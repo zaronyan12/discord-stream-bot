@@ -288,6 +288,8 @@
    * @param {string} [options.discordUsername] Discordユーザー名
    * @returns {Promise<void>}
    */
+const { AttachmentBuilder, PermissionsBitField } = require('discord.js');
+
 async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, thumbnailUrl }) {
   const platformEmoji = {
     twitch: '🔴',
@@ -316,7 +318,7 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
   // メッセージ部分（タイトルとURLをテキストで表示）
   const message = `${platformEmoji[platform]} **${discordUsername}** が${platformName[platform]}でライブ配信中！\n**タイトル:** ${title}\n${url}`;
 
-  // Discord Embedを作成（配信者名とタイトルだけ）
+  // Discord Embedを作成（フィールドのみ）
   const embed = {
     color: platform === 'twitch' ? 0x6441A4 : platform === 'youtube' ? 0xFF0000 : 0x1DA1F2,
     fields: [
