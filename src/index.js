@@ -275,20 +275,7 @@
   // ==============================================
   // 配信通知関連関数
   // ==============================================
-  
-  /**
-   * 配信通知を送信
-   * @param {Object} options オプション
-   * @param {string} options.platform プラットフォーム (twitch/youtube/twitcasting)
-   * @param {string} options.username ユーザー名
-   * @param {string} options.title 配信タイトル
-   * @param {string} options.url 配信URL
-   * @param {string} options.channelId 通知チャンネルID
-   * @param {string} options.roleId 通知ロールID
-   * @param {string} [options.discordUsername] Discordユーザー名
-   * @returns {Promise<void>}
-   */
-async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, thumbnailUrl }) {
+  async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, thumbnailUrl }) {
   const platformEmoji = {
     twitch: '🔴',
     youtube: '🎥',
@@ -313,19 +300,40 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     return;
   }
 
-  // ディスコードの表示名を取得（既にcheckTwitchStreamsで設定済み）
+  // ディスコードの表示名を取得
   let displayName = discordUsername;
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (guild && streamer.discordId) {
+      const member = await guild.members.fetch(streamer.discordId).catch(() => null);
+      if (member) displayName = member.displayName || member.user.username;
+    }
+  } catch (err) {
+    console.error(`表示名取得エラー: ${streamer.discordId}`, err.message);
+  }
 
-  // メッセージ部分（表示名とTwitchチャンネル情報を追加）
+  // メッセージ部分
   const message = `${platformEmoji[platform]} **${displayName}** が${platformName[platform]}でライブ配信中！\n**タイトル:** ${title}\n**チャンネル:** ${username}\n${url}`;
 
   try {
-    // サムネイルを添付ファイルとして送信
+    // デバッグ: 送信内容を確認
+    console.log(`送信メッセージ: ${message}, 添付ファイル: ${thumbnailUrl ? 'あり' : 'なし'}`);
+
+    // 自動Embedを無効化し、プレーンテキストと添付ファイルのみ送信
     if (thumbnailUrl) {
       const attachment = new AttachmentBuilder(thumbnailUrl.replace('{width}', '1280').replace('{height}', '720'), { name: 'thumbnail.jpg' });
-      await channel.send({ content: message, files: [attachment] });
+      await channel.send({
+        content: message,
+        files: [attachment],
+        allowedMentions: { parse: [] }, // メンションを無効化
+        disableMentions: 'everyone' // 全体メンションを無効化
+      });
     } else {
-      await channel.send({ content: message });
+      await channel.send({
+        content: message,
+        allowedMentions: { parse: [] },
+        disableMentions: 'everyone'
+      });
     }
     console.log(`${platformName[platform]}通知送信成功: Twitchチャンネル=${username}, 表示名=${displayName}, guildId=${guildId}, channelId=${channelId}`);
   } catch (err) {
@@ -335,6 +343,19 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     });
   }
 }
+  /**
+   * 配信通知を送信
+   * @param {Object} options オプション
+   * @param {string} options.platform プラットフォーム (twitch/youtube/twitcasting)
+   * @param {string} options.username ユーザー名
+   * @param {string} options.title 配信タイトル
+   * @param {string} options.url 配信URL
+   * @param {string} options.channelId 通知チャンネルID
+   * @param {string} options.roleId 通知ロールID
+   * @param {string} [options.discordUsername] Discordユーザー名
+   * @returns {Promise<void>}
+   */
+
     /**
    * キーワードチェック
    * @param {string} title 配信タイトル
