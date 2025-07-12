@@ -307,17 +307,25 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     return;
   }
 
-  // Discord Embedを作成
+  // 権限チェック
+  if (!channel.permissionsFor(channel.guild.members.me).has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.EmbedLinks])) {
+    console.error(`権限不足: channelId=${channelId}, 必要な権限: SEND_MESSAGES, EMBED_LINKS`);
+    return;
+  }
+
+  // メッセージ部分（タイトルとURLをテキストで表示）
+  const message = `${platformEmoji[platform]} ${discordUsername} が${platformName[platform]}でライブ配信中！\nタイトル: ${title}\n${url}`;
+
+  // Discord Embedを作成（サムネイルとタイムスタンプのみ）
   const embed = {
     color: platform === 'twitch' ? 0x6441A4 : platform === 'youtube' ? 0xFF0000 : 0x1DA1F2,
-    title: `${platformEmoji[platform]} ${discordUsername} が${platformName[platform]}でライブ配信中！`,
-    description: `タイトル: ${title}\n[視聴する](${url})`,
-    thumbnail: thumbnailUrl ? { url: thumbnailUrl.replace('{width}', '320').replace('{height}', '180') } : undefined,
+    thumbnail: thumbnailUrl ? { url: thumbnailUrl.replace('{width}', '1280').replace('{height}', '720') } : undefined,
     timestamp: new Date()
   };
 
   try {
-    await channel.send({ content: roleId ? `<@&${roleId}>` : undefined, embeds: [embed] });
+    // ロールメンションを削除し、メッセージとEmbedを送信
+    await channel.send({ content: message, embeds: [embed] });
     console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
   } catch (err) {
     console.error(`通知送信エラー: guildId=${guildId}, channelId=${channelId}`, {
@@ -326,16 +334,6 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
     });
   }
 }
-  /**
-   * キーワードチェック
-   * @param {string} title 配信タイトル
-   * @param {string[]} keywords キーワード配列
-   * @returns {boolean} キーワードに一致するか
-   */
-  function checkKeywords(title, keywords) {
-    if (!keywords || keywords.length === 0) return true;
-    return keywords.some(keyword => title.toLowerCase().includes(keyword.toLowerCase()));
-  }
   
   // ==============================================
   // Webhookハンドラー
@@ -547,7 +545,7 @@ app.post('/webhook/twitcasting', async (req, res) => {
   // 配信チェック関数
   // ==============================================
 
-  async function checkTwitchStreams() {
+async function checkTwitchStreams() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
   
@@ -555,7 +553,7 @@ app.post('/webhook/twitcasting', async (req, res) => {
   try {
     accessToken = await getTwitchAccessToken();
   } catch (err) {
-    console.error('Twitchアクセストークン取得失敗、チェックをスキップ');
+    console.error('Twitchアクセストークン取得失敗、チェックをスキップ:', err.message);
     return;
   }
 
@@ -570,6 +568,8 @@ app.post('/webhook/twitcasting', async (req, res) => {
           'Authorization': `Bearer ${accessToken}`
         }
       });
+
+      console.log(`Twitch APIレスポンス (${streamer.twitchUsername}):`, JSON.stringify(response.data, null, 2));
 
       const currentStream = response.data.data[0] || null;
       const cachedStream = activeStreams.twitch.get(streamer.twitchId);
@@ -601,8 +601,23 @@ app.post('/webhook/twitcasting', async (req, res) => {
               console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
             }
 
-            // thumbnail_urlがundefinedの場合、フォールバックとしてnullを渡す
-            const thumbnailUrl = thumbnail_url || null;
+            // thumbnail_urlがundefinedの場合、フォールバックとしてプロフィール画像を取得
+            let thumbnailUrl = thumbnail_url || null;
+            if (!thumbnailUrl) {
+              try {
+                const userResponse = await axios.get('https://api.twitch.tv/helix/users', {
+                  params: { id: streamer.twitchId },
+                  headers: {
+                    'Client-ID': TWITCH_CLIENT_ID,
+                    'Authorization': `Bearer ${accessToken}`
+                  }
+                });
+                thumbnailUrl = userResponse.data.data?.[0]?.profile_image_url || null;
+                console.log(`フォールバック: プロフィール画像を使用 (${streamer.twitchUsername}):`, thumbnailUrl);
+              } catch (err) {
+                console.error(`プロフィール画像取得エラー (${streamer.twitchUsername}):`, err.message);
+              }
+            }
 
             await sendStreamNotification({
               platform: 'twitch',
@@ -613,7 +628,7 @@ app.post('/webhook/twitcasting', async (req, res) => {
               guildId,
               channelId: settings.channelId,
               roleId: settings.notificationRoles.twitch,
-              thumbnailUrl // 変数名を一致させる
+              thumbnailUrl
             });
           }
 
@@ -627,7 +642,7 @@ app.post('/webhook/twitcasting', async (req, res) => {
       console.error(`Twitch APIエラー (${streamer.twitchUsername}):`, {
         message: err.message,
         stack: err.stack,
-        response: err.response?.data // APIレスポンスの詳細をログ
+        response: err.response?.data
       });
     }
   }
