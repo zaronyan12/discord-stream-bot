@@ -308,24 +308,32 @@ async function sendStreamNotification({ platform, username, title, url, guildId,
   }
 
   // 権限チェック
-  if (!channel.permissionsFor(channel.guild.members.me).has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.EmbedLinks])) {
-    console.error(`権限不足: channelId=${channelId}, 必要な権限: SEND_MESSAGES, EMBED_LINKS`);
+  if (!channel.permissionsFor(channel.guild.members.me).has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles])) {
+    console.error(`権限不足: channelId=${channelId}, 必要な権限: SEND_MESSAGES, ATTACH_FILES`);
     return;
   }
 
   // メッセージ部分（タイトルとURLをテキストで表示）
-  const message = `${platformEmoji[platform]} ${discordUsername} が${platformName[platform]}でライブ配信中！\nタイトル: ${title}\n${url}`;
+  const message = `${platformEmoji[platform]} **${discordUsername}** が${platformName[platform]}でライブ配信中！\n**タイトル:** ${title}\n${url}`;
 
-  // Discord Embedを作成（サムネイルとタイムスタンプのみ）
+  // Discord Embedを作成（配信者名とタイトルだけ）
   const embed = {
     color: platform === 'twitch' ? 0x6441A4 : platform === 'youtube' ? 0xFF0000 : 0x1DA1F2,
-    thumbnail: thumbnailUrl ? { url: thumbnailUrl.replace('{width}', '1280').replace('{height}', '720') } : undefined,
+    fields: [
+      { name: '\u200B', value: `**${discordUsername} - ${platformName[platform]}**`, inline: false },
+      { name: '\u200B', value: title, inline: false }
+    ],
     timestamp: new Date()
   };
 
   try {
-    // ロールメンションを削除し、メッセージとEmbedを送信
-    await channel.send({ content: message, embeds: [embed] });
+    // サムネイルを添付ファイルとして送信
+    if (thumbnailUrl) {
+      const attachment = new AttachmentBuilder(thumbnailUrl.replace('{width}', '1280').replace('{height}', '720'), { name: 'thumbnail.jpg' });
+      await channel.send({ content: message, embeds: [embed], files: [attachment] });
+    } else {
+      await channel.send({ content: message, embeds: [embed] });
+    }
     console.log(`${platformName[platform]}通知送信成功: ${username}, guildId=${guildId}, channelId=${channelId}`);
   } catch (err) {
     console.error(`通知送信エラー: guildId=${guildId}, channelId=${channelId}`, {
@@ -553,7 +561,6 @@ app.post('/webhook/twitcasting', async (req, res) => {
   // ==============================================
   // 配信チェック関数
   // ==============================================
-
 async function checkTwitchStreams() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
@@ -610,7 +617,6 @@ async function checkTwitchStreams() {
               console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
             }
 
-            // thumbnail_urlがundefinedの場合、フォールバックとしてプロフィール画像を取得
             let thumbnailUrl = thumbnail_url || null;
             if (!thumbnailUrl) {
               try {
@@ -656,7 +662,6 @@ async function checkTwitchStreams() {
     }
   }
 }
-  
   // ==============================================
   // その他の関数
   // ==============================================
