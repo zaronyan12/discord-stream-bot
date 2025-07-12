@@ -288,26 +288,26 @@
    * @param {string} [options.discordUsername] Discordユーザー名
    * @returns {Promise<void>}
    */
-  async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username }) {
-    const platformEmoji = {
-      twitch: '🔴',
-      youtube: '🎥',
-      twitcasting: '📡'
-    };
-  
-    const platformName = {
-      twitch: 'Twitch',
-      youtube: 'YouTube',
-      twitcasting: 'ツイキャス'
-    };
-  
-    const channel = client.channels.cache.get(channelId);
-    if (!channel) {
-      console.warn(`チャンネルが見つかりません: channelId=${channelId}`);
-      return;
-    }
-  
-    // Discord Embedを作成
+async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, thumbnailUrl }) {
+  const platformEmoji = {
+    twitch: '🔴',
+    youtube: '🎥',
+    twitcasting: '📡'
+  };
+
+  const platformName = {
+    twitch: 'Twitch',
+    youtube: 'YouTube',
+    twitcasting: 'ツイキャス'
+  };
+
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) {
+    console.warn(`チャンネルが見つかりません: channelId=${channelId}`);
+    return;
+  }
+
+  // Discord Embedを作成
   const embed = {
     color: platform === 'twitch' ? 0x6441A4 : platform === 'youtube' ? 0xFF0000 : 0x1DA1F2,
     title: `${platformEmoji[platform]} ${discordUsername} が${platformName[platform]}でライブ配信中！`,
@@ -547,7 +547,7 @@ app.post('/webhook/twitcasting', async (req, res) => {
   // 配信チェック関数
   // ==============================================
 
-async function checkTwitchStreams() {
+  async function checkTwitchStreams() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
   
@@ -601,6 +601,9 @@ async function checkTwitchStreams() {
               console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
             }
 
+            // thumbnail_urlがundefinedの場合、フォールバックとしてnullを渡す
+            const thumbnailUrl = thumbnail_url || null;
+
             await sendStreamNotification({
               platform: 'twitch',
               username: streamer.twitchUsername,
@@ -610,7 +613,7 @@ async function checkTwitchStreams() {
               guildId,
               channelId: settings.channelId,
               roleId: settings.notificationRoles.twitch,
-              thumbnailUrl: thumbnail_url // サムネイルURLを追加
+              thumbnailUrl // 変数名を一致させる
             });
           }
 
@@ -621,11 +624,14 @@ async function checkTwitchStreams() {
         console.log(`ライブ配信終了: ${streamer.twitchUsername}`);
       }
     } catch (err) {
-      console.error(`Twitch APIエラー (${streamer.twitchUsername}):`, err.message);
+      console.error(`Twitch APIエラー (${streamer.twitchUsername}):`, {
+        message: err.message,
+        stack: err.stack,
+        response: err.response?.data // APIレスポンスの詳細をログ
+      });
     }
   }
 }
-  
   
   // ==============================================
   // その他の関数
