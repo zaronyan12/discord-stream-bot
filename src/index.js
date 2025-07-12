@@ -275,7 +275,7 @@
   // ==============================================
   // 配信通知関連関数
   // ==============================================
-  async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, thumbnailUrl }) {
+  async function sendStreamNotification({ platform, username, title, url, guildId, channelId, roleId, discordUsername = username, discordId, thumbnailUrl }) {
   const platformEmoji = {
     twitch: '🔴',
     youtube: '🎥',
@@ -303,13 +303,15 @@
   // ディスコードの表示名を取得
   let displayName = discordUsername;
   try {
-    const guild = client.guilds.cache.get(guildId);
-    if (guild && streamer.discordId) {
-      const member = await guild.members.fetch(streamer.discordId).catch(() => null);
-      if (member) displayName = member.displayName || member.user.username;
+    if (discordId) {
+      const guild = client.guilds.cache.get(guildId);
+      if (guild) {
+        const member = await guild.members.fetch(discordId).catch(() => null);
+        if (member) displayName = member.displayName || member.user.username;
+      }
     }
   } catch (err) {
-    console.error(`表示名取得エラー: ${streamer.discordId}`, err.message);
+    console.error(`表示名取得エラー: discordId=${discordId}`, err.message);
   }
 
   // メッセージ部分
@@ -325,8 +327,8 @@
       await channel.send({
         content: message,
         files: [attachment],
-        allowedMentions: { parse: [] }, // メンションを無効化
-        disableMentions: 'everyone' // 全体メンションを無効化
+        allowedMentions: { parse: [] },
+        disableMentions: 'everyone'
       });
     } else {
       await channel.send({
@@ -343,18 +345,6 @@
     });
   }
 }
-  /**
-   * 配信通知を送信
-   * @param {Object} options オプション
-   * @param {string} options.platform プラットフォーム (twitch/youtube/twitcasting)
-   * @param {string} options.username ユーザー名
-   * @param {string} options.title 配信タイトル
-   * @param {string} options.url 配信URL
-   * @param {string} options.channelId 通知チャンネルID
-   * @param {string} options.roleId 通知ロールID
-   * @param {string} [options.discordUsername] Discordユーザー名
-   * @returns {Promise<void>}
-   */
 
     /**
    * キーワードチェック
@@ -621,17 +611,18 @@ async function checkTwitchStreams() {
             }
 
             let discordUsername = streamer.twitchUsername;
+            let discordId = streamer.discordId; // discordIdを別途取得
             try {
               const guild = client.guilds.cache.get(guildId);
-              if (guild && streamer.discordId) {
-                const member = await guild.members.fetch(streamer.discordId).catch(() => null);
+              if (guild && discordId) {
+                const member = await guild.members.fetch(discordId).catch(() => null);
                 if (member) discordUsername = member.displayName || member.user.username;
-                console.log(`表示名取得: ${streamer.discordId} -> ${discordUsername}`);
+                console.log(`表示名取得: discordId=${discordId} -> ${discordUsername}`);
               } else {
-                console.log(`表示名未取得: discordId=${streamer.discordId}, guildId=${guildId}`);
+                console.log(`表示名未取得: discordId=${discordId}, guildId=${guildId}`);
               }
             } catch (err) {
-              console.error(`Discordユーザー名取得エラー: ${streamer.discordId}`, err.message);
+              console.error(`Discordユーザー名取得エラー: discordId=${discordId}`, err.message);
             }
 
             let thumbnailUrl = thumbnail_url || null;
@@ -653,8 +644,9 @@ async function checkTwitchStreams() {
 
             await sendStreamNotification({
               platform: 'twitch',
-              username: streamer.twitchUsername, // Twitchチャンネル名（APIから取得）
+              username: streamer.twitchUsername,
               discordUsername,
+              discordId, // discordIdを渡す
               title,
               url: `https://www.twitch.tv/${streamer.twitchUsername}`,
               guildId,
