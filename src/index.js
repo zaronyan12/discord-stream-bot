@@ -148,29 +148,33 @@
    * @param {string} url 入力されたURL
    * @returns {{ platform: string, id: string }|null} プラットフォームとID、または無効ならnull
    */
-  function parseStreamUrl(url) {
-    // YouTube: チャンネルID形式
-    const youtubeChannelIdRegex = /youtube\.com\/channel\/(UC[0-9A-Za-z_-]{21}[AQgw])/;
-    // YouTube: ハンドル形式 (@xxxx)
-    const youtubeHandleRegex = /youtube\.com\/(?:channel\/|c\/|user\/|)?@([a-zA-Z0-9_-]+)/;
-    const twitchRegex = /twitch\.tv\/([a-zA-Z0-9_]+)/;
-    const twitcastingRegex = /twitcasting\.tv\/(g:[0-9a-zA-Z_-]+|[a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
-  
-    if (youtubeChannelIdRegex.test(url)) {
-      const match = url.match(youtubeChannelIdRegex);
-      return { platform: 'youtube', id: match[1], type: 'channelId' };
-    } else if (youtubeHandleRegex.test(url)) {
-      const match = url.match(youtubeHandleRegex);
-      return { platform: 'youtube', id: `@${match[1]}`, type: 'handle' };
-    } else if (twitchRegex.test(url)) {
-      const match = url.match(twitchRegex);
-      return { platform: 'twitch', id: match[1], type: 'username' };
-    } else if (twitcastingRegex.test(url)) {
-      const match = url.match(twitcastingRegex);
-      return { platform: 'twitcasting', id: match[1], type: 'username' };
+function parseStreamUrl(url) {
+  const youtubeChannelIdRegex = /youtube\.com\/channel\/(UC[0-9A-Za-z_-]{21}[AQgw])/;
+  const youtubeHandleRegex = /youtube\.com\/(?:channel\/|c\/|user\/|)?@([a-zA-Z0-9_-]+)/;
+  const twitchRegex = /twitch\.tv\/([a-zA-Z0-9_]+)/;
+  const twitcastingRegex = /twitcasting\.tv\/(@g:[0-9a-zA-Z_-]+|@[a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
+
+  if (youtubeChannelIdRegex.test(url)) {
+    const match = url.match(youtubeChannelIdRegex);
+    return { platform: 'youtube', id: match[1], type: 'channelId' };
+  } else if (youtubeHandleRegex.test(url)) {
+    const match = url.match(youtubeHandleRegex);
+    return { platform: 'youtube', id: `@${match[1]}`, type: 'handle' };
+  } else if (twitchRegex.test(url)) {
+    const match = url.match(twitchRegex);
+    return { platform: 'twitch', id: match[1], type: 'username' };
+  } else if (twitcastingRegex.test(url)) {
+    const match = url.match(twitcastingRegex);
+    let id = match[1].replace(/^@/, ''); // @ を削除
+    let type = 'screen_id';
+    if (id.startsWith('g:')) {
+      id = id.replace(/^g:/, ''); // g: を削除
+      type = 'globalId';
     }
-    return null;
+    return { platform: 'twitcasting', id, type };
   }
+  return null;
+}
   
   // ==============================================
   // 設定ファイルの読み込み/保存関数
@@ -481,17 +485,22 @@ if (!userId || !userName || !liveId || !title) {
   return res.status(200).end();
 }
 
-let cleanedUserId = userId;
-if (userId.startsWith('g:')) {
-  cleanedUserId = userId.replace('g:', '');
-  console.log(`TwitCasting ID修正: ${cleanedUserId}`);
+let cleanedUserId = userId.replace(/^@/, ''); // @ を削除
+let isGlobalId = cleanedUserId.startsWith('g:');
+if (isGlobalId) {
+  cleanedUserId = cleanedUserId.replace(/^g:/, '');
+  console.log(`TwitCasting グローバルID修正: ${cleanedUserId}`);
 } else {
   try {
     const accessToken = await getTwitCastingAccessToken();
     const response = await axios.get(
-      `https://apiv2.twitcasting.tv/users/${userId}`,
+      `https://apiv2.twitcasting.tv/users/${cleanedUserId}`,
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'X-Api-Version': '2.0'
+        },
         timeout: 5000
       }
     );
@@ -503,7 +512,8 @@ if (userId.startsWith('g:')) {
     console.error(`ユーザーID取得エラー (userId: ${userId}):`, {
       message: err.message,
       status: err.response?.status,
-      data: err.response?.data
+      data: err.response?.data,
+      url: `https://apiv2.twitcasting.tv/users/${cleanedUserId}`
     });
     return res.status(200).end();
   }
@@ -1914,25 +1924,31 @@ async function checkTwitchStreams() {
  */
 async function getTwitCastingAccessToken() {
   try {
+    console.log('TwitCastingトークン取得リクエスト:', {
+      client_id: process.env.TWITCASTING_CLIENT_ID,
+      client_secret: process.env.TWITCASTING_CLIENT_SECRET ? '[REDACTED]' : '未設定',
+      url: 'https://apiv2.twitcasting.tv/oauth2/access_token'
+    });
     const response = await axios.post(
-      'https://apiv2.twitcasting.tv/oauth2/token',
-      null,
+      'https://apiv2.twitcasting.tv/oauth2/access_token',
+      new URLSearchParams({
+        client_id: process.env.TWITCASTING_CLIENT_ID,
+        client_secret: process.env.TWITCASTING_CLIENT_SECRET,
+        grant_type: 'client_credentials'
+      }),
       {
-        params: {
-          client_id: process.env.TWITCASTING_CLIENT_ID,
-          client_secret: process.env.TWITCASTING_CLIENT_SECRET,
-          grant_type: 'client_credentials'
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 5000
       }
     );
-    console.log('TwitCastingアクセストークン取得成功');
+    console.log('TwitCastingアクセストークン取得成功:', response.data);
     return response.data.access_token;
   } catch (err) {
     console.error('TwitCastingアクセストークン取得エラー:', {
       message: err.message,
       status: err.response?.status,
-      data: err.response?.data
+      data: err.response?.data,
+      url: 'https://apiv2.twitcasting.tv/oauth2/access_token'
     });
     throw err;
   }
@@ -2082,15 +2098,17 @@ async function getTwitCastingAccessToken() {
       } else if (platformData.platform === 'twitcasting') {
         try {
           const accessToken = await getTwitCastingAccessToken();
-          let userId = platformData.id;
-          if (userId.startsWith('g:')) {
-            userId = userId.replace('g:', '');
-            console.log(`TwitCasting ID修正: ${userId}`);
-          }
+          const userId = platformData.id;
+          const isGlobalId = platformData.type === 'globalId';
+          console.log(`TwitCastingユーザー取得: id=${userId}, type=${platformData.type}`);
           const response = await axios.get(
             `https://apiv2.twitcasting.tv/users/${userId}`,
             {
-              headers: { Authorization: `Bearer ${accessToken}` },
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Accept': 'application/json',
+                'X-Api-Version': '2.0'
+              },
               timeout: 5000
             }
           );
@@ -2101,13 +2119,14 @@ async function getTwitCastingAccessToken() {
           platformId = response.data.user.id;
           console.log(`ユーザー名取得成功: ${platformUsername}, ID: ${platformId}`);
         } catch (err) {
-          console.error(`ユーザー名取得エラー (TwitCasting, ID: ${platformData.id}):`, {
+          console.error(`ユーザー名取得エラー (TwitCasting, ID: ${platformData.id}, Type: ${platformData.type}):`, {
             message: err.message,
             status: err.response?.status,
-            data: err.response?.data
+            data: err.response?.data,
+            url: `https://apiv2.twitcasting.tv/users/${platformData.id}`
           });
           return interaction.reply({
-            content: `ツイキャスアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
+            content: `ツイキャスアカウントのユーザー名を取得できませんでした。URLが正しいか確認してください（例: https://twitcasting.tv/@zaro_game）。`,
             ephemeral: true
           });
         }
