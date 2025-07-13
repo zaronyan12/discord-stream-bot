@@ -152,7 +152,7 @@ function parseStreamUrl(url) {
   const youtubeChannelIdRegex = /youtube\.com\/channel\/(UC[0-9A-Za-z_-]{21}[AQgw])/;
   const youtubeHandleRegex = /youtube\.com\/(?:channel\/|c\/|user\/|)?@([a-zA-Z0-9_-]+)/;
   const twitchRegex = /twitch\.tv\/([a-zA-Z0-9_]+)/;
-  const twitcastingRegex = /twitcasting\.tv\/(@g:[0-9a-zA-Z_-]+|@[a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
+  const twitcastingRegex = /twitcasting\.tv\/((?:g:)?[0-9a-zA-Z_-]+|[a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
 
   if (youtubeChannelIdRegex.test(url)) {
     const match = url.match(youtubeChannelIdRegex);
@@ -165,7 +165,7 @@ function parseStreamUrl(url) {
     return { platform: 'twitch', id: match[1], type: 'username' };
   } else if (twitcastingRegex.test(url)) {
     const match = url.match(twitcastingRegex);
-    let id = match[1].replace(/^@/, ''); // @ を削除
+    let id = match[1];
     let type = 'screen_id';
     if (id.startsWith('g:')) {
       id = id.replace(/^g:/, ''); // g: を削除
@@ -485,7 +485,7 @@ if (!userId || !userName || !liveId || !title) {
   return res.status(200).end();
 }
 
-let cleanedUserId = userId.replace(/^@/, ''); // @ を削除
+let cleanedUserId = userId.replace(/^@?/, ''); // @ をオプションで削除
 let isGlobalId = cleanedUserId.startsWith('g:');
 if (isGlobalId) {
   cleanedUserId = cleanedUserId.replace(/^g:/, '');
@@ -2126,8 +2126,8 @@ async function getTwitCastingAccessToken() {
             url: `https://apiv2.twitcasting.tv/users/${platformData.id}`
           });
           return interaction.reply({
-            content: `ツイキャスアカウントのユーザー名を取得できませんでした。URLが正しいか確認してください（例: https://twitcasting.tv/@zaro_game）。`,
-            ephemeral: true
+            content: `ツイキャスアカウントのユーザー名を取得できませんでした。URLが正しいか確認してください（例: https://twitcasting.tv/zaro_game）。`,
+            flags: 64
           });
         }
       }
