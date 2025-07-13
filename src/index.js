@@ -7,7 +7,7 @@
   const fsPromises = require('fs').promises;
   const https = require('https');
   const crypto = require('crypto');
-  require('dotenv').config({ path: path.join(__dirname, '../.env') });
+  require('dotenv').config({ path: path.join(__dirname, '../.env') });　
   
   // 環境変数
   const {
@@ -154,7 +154,7 @@
     // YouTube: ハンドル形式 (@xxxx)
     const youtubeHandleRegex = /youtube\.com\/(?:channel\/|c\/|user\/|)?@([a-zA-Z0-9_-]+)/;
     const twitchRegex = /twitch\.tv\/([a-zA-Z0-9_]+)/;
-    const twitcastingRegex = /twitcasting\.tv\/([a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
+    const twitcastingRegex = /twitcasting\.tv\/(g:[0-9a-zA-Z_-]+|[a-zA-Z0-9_\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]+)/u;
   
     if (youtubeChannelIdRegex.test(url)) {
       const match = url.match(youtubeChannelIdRegex);
@@ -1881,7 +1881,33 @@ async function checkTwitchStreams() {
       }
     }
   }
+/**
+ * TwitCastingアクセストークンを取得
+ * @returns {Promise<string>} アクセストークン
+ */
+async function getTwitCastingAccessToken() {
+  try {
+    const response = await axios.post(
+      'https://apiv2.twitcasting.tv/oauth2/token',
+      null,
+      {
+        params: {
+          client_id: process.env.TWITCASTING_CLIENT_ID,
+          client_secret: process.env.TWITCASTING_CLIENT_SECRET,
+          grant_type: 'client_credentials'
+        },
+        timeout: 5000
+      }
+    );
+    console.log('TwitCastingアクセストークン取得成功');
+    return response.data.access_token;
+  } catch (err) {
+    console.error('TwitCastingアクセストークン取得エラー:', err.message);
+    throw err;
+  }
+}
   async function handleModalSubmit(interaction) {
+    
     if (interaction.customId.startsWith('stream_url_modal_')) {
       // 正しいインデックスで値を取得
       const parts = interaction.customId.split('_');
@@ -1989,19 +2015,37 @@ async function checkTwitchStreams() {
             timeout: 5000
           });
           platformUsername = response.data.data?.[0]?.display_name || platformData.id;
-        } else if (platformData.platform === 'twitcasting') {
-          const response = await axios.get(
-            `https://apiv2.twitcasting.tv/users/${platformData.id}`,
-            {
-              headers: {
-                'Client-ID': TWITCASTING_CLIENT_ID,
-                'Client-Secret': TWITCASTING_CLIENT_SECRET
-              },
-              timeout: 5000
-            }
-          );
-          platformUsername = response.data.user?.name || platformData.id;
-        }
+    
+} else if (platformData.platform === 'twitcasting') {
+  try {
+    // g:プレフィックスを削除
+    const userId = platformData.id.startsWith('g:') ? platformData.id.replace('g:', '') : platformData.id;
+    console.log(`TwitCasting ID修正: ${userId}`); // 例: 106990371183082129385
+    const accessToken = await getTwitCastingAccessToken();
+    const response = await axios.get(
+      `https://apiv2.twitcasting.tv/users/${userId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        timeout: 5000
+      }
+    );
+    platformUsername = response.data.user?.name || userId;
+    platformData.id = userId; // 正しいIDを保存
+    console.log(`ユーザー名取得成功: ${platformUsername}`); // 例: zaro_game
+  } catch (err) {
+    console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    return interaction.reply({
+      content: `ツイキャスアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
+      ephemeral: true
+    });
+  }
+}
       } catch (err) {
         console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
           message: err.message,
