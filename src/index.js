@@ -470,22 +470,49 @@ app.post('/webhook/twitcasting', async (req, res) => {
     console.log('TwitCasting Webhook受信 (POST):', { clientIp, body: req.body });
 
     // イベントタイプチェック
-    const { event, user_id: userId, user_name: userName, movie_id: liveId, title } = req.body;
-    if (event !== 'live_start') {
-      console.log(`イベント無視: ${event}`);
-      return res.status(200).end();
+const { event, user_id: userId, user_name: userName, movie_id: liveId, title } = req.body;
+if (event !== 'live_start') {
+  console.log(`イベント無視: ${event}`);
+  return res.status(200).end();
+}
+
+if (!userId || !userName || !liveId || !title) {
+  console.warn('無効なWebhookデータ受信:', req.body);
+  return res.status(200).end();
+}
+
+let cleanedUserId = userId;
+if (userId.startsWith('g:')) {
+  cleanedUserId = userId.replace('g:', '');
+  console.log(`TwitCasting ID修正: ${cleanedUserId}`);
+} else {
+  try {
+    const accessToken = await getTwitCastingAccessToken();
+    const response = await axios.get(
+      `https://apiv2.twitcasting.tv/users/${userId}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 5000
+      }
+    );
+    if (response.data.user?.id) {
+      cleanedUserId = response.data.user.id;
+      console.log(`ユーザー名からID取得: ${userId} -> ${cleanedUserId}`);
     }
+  } catch (err) {
+    console.error(`ユーザーID取得エラー (userId: ${userId}):`, {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    return res.status(200).end();
+  }
+}
 
-    // 必須パラメータチェック
-    if (!userId || !userName || !liveId || !title) {
-      console.warn('無効なWebhookデータ受信:', req.body);
-      return res.status(200).end();
-    }
+console.log('TwitCasting Webhook受信:', { userId: cleanedUserId, userName, liveId, title, event });
 
-    console.log('TwitCasting Webhook受信:', { userId, userName, liveId, title, event });
-
-    const twitcasters = await loadTwitcasters(true);
-    const twitcaster = twitcasters.find(t => t.twitcastingId === userId);
+const twitcasters = await loadTwitcasters(true);
+const twitcaster = twitcasters.find(t => t.twitcastingId === cleanedUserId);
     if (!twitcaster) {
       console.log(`ユーザー未登録: ${userId}`);
       return res.status(200).end();
@@ -1902,7 +1929,11 @@ async function getTwitCastingAccessToken() {
     console.log('TwitCastingアクセストークン取得成功');
     return response.data.access_token;
   } catch (err) {
-    console.error('TwitCastingアクセストークン取得エラー:', err.message);
+    console.error('TwitCastingアクセストークン取得エラー:', {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
     throw err;
   }
 }
@@ -2015,25 +2046,39 @@ async function getTwitCastingAccessToken() {
             timeout: 5000
           });
           platformUsername = response.data.data?.[0]?.display_name || platformData.id;
-    
-} else if (platformData.platform === 'twitcasting') {
+    } else if (platformData.platform === 'twitcasting') {
   try {
-    // g:プレフィックスを削除
-    const userId = platformData.id.startsWith('g:') ? platformData.id.replace('g:', '') : platformData.id;
-    console.log(`TwitCasting ID修正: ${userId}`); // 例: 106990371183082129385
     const accessToken = await getTwitCastingAccessToken();
+    let userId = platformData.id;
+    if (userId.startsWith('g:')) {
+      userId = userId.replace('g:', '');
+      console.log(`TwitCasting ID修正: ${userId}`);
+    }
     const response = await axios.get(
       `https://apiv2.twitcasting.tv/users/${userId}`,
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
+        headers: { Authorization: `Bearer ${accessToken}` },
         timeout: 5000
       }
     );
-    platformUsername = response.data.user?.name || userId;
-    platformData.id = userId; // 正しいIDを保存
-    console.log(`ユーザー名取得成功: ${platformUsername}`); // 例: zaro_game
+    if (!response.data.user) {
+      throw new Error('ユーザー情報が見つかりません');
+    }
+    platformUsername = response.data.user.name;
+    platformId = response.data.user.id;
+    console.log(`ユーザー名取得成功: ${platformUsername}, ID: ${platformId}`);
+  } catch (err) {
+    console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    return interaction.reply({
+      content: `ツイキャスアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
+      ephemeral: true
+    });
+  }
+}
   } catch (err) {
     console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
       message: err.message,
