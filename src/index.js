@@ -484,7 +484,6 @@ if (!userId || !userName || !liveId || !title) {
   console.warn('無効なWebhookデータ受信:', req.body);
   return res.status(200).end();
 }
-
 let cleanedUserId = userId.replace(/^@?/, ''); // @ をオプションで削除
 let isGlobalId = cleanedUserId.startsWith('g:');
 if (isGlobalId) {
@@ -493,7 +492,7 @@ if (isGlobalId) {
 } else {
   try {
     const accessToken = await getTwitCastingAccessToken();
-    const response = await axios.get(
+    let response = await axios.get(
       `https://apiv2.twitcasting.tv/users/${cleanedUserId}`,
       {
         headers: {
@@ -504,6 +503,20 @@ if (isGlobalId) {
         timeout: 5000
       }
     );
+    if (!response.data.user && isGlobalId) {
+      console.log(`グローバルID失敗、ユーザー名でリトライ: ${cleanedUserId}`);
+      response = await axios.get(
+        `https://apiv2.twitcasting.tv/users/${cleanedUserId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Accept': 'application/json',
+            'X-Api-Version': '2.0'
+          },
+          timeout: 5000
+        }
+      );
+    }
     if (response.data.user?.id) {
       cleanedUserId = response.data.user.id;
       console.log(`ユーザー名からID取得: ${userId} -> ${cleanedUserId}`);
@@ -1922,8 +1935,25 @@ async function checkTwitchStreams() {
  * TwitCastingアクセストークンを取得
  * @returns {Promise<string>} アクセストークン
  */
+const fs = require('fs').promises;
+const path = require('path');
+
 async function getTwitCastingAccessToken() {
+  const tokenFile = path.join(__dirname, 'twitcasting_token.json');
   try {
+    // 保存済みトークンのチェック
+    try {
+      const tokenData = await fs.readFile(tokenFile, 'utf8');
+      const { access_token, expires_at } = JSON.parse(tokenData);
+      if (expires_at > Date.now()) {
+        console.log('TwitCasting保存済みトークン使用:', access_token);
+        return access_token;
+      }
+    } catch (err) {
+      console.log('保存済みトークンなしまたは期限切れ');
+    }
+
+    // ユーザー認証フロー（仮にコールバックで取得済みのcodeを使用）
     console.log('TwitCastingトークン取得リクエスト:', {
       client_id: process.env.TWITCASTING_CLIENT_ID,
       client_secret: process.env.TWITCASTING_CLIENT_SECRET ? '[REDACTED]' : '未設定',
@@ -1934,15 +1964,20 @@ async function getTwitCastingAccessToken() {
       new URLSearchParams({
         client_id: process.env.TWITCASTING_CLIENT_ID,
         client_secret: process.env.TWITCASTING_CLIENT_SECRET,
-        grant_type: 'client_credentials'
+        grant_type: 'authorization_code',
+        code: process.env.TWITCASTING_AUTH_CODE, // 開発者ポータルで取得したcode
+        redirect_uri: process.env.TWITCASTING_REDIRECT_URI // 例: http://localhost:3000/callback
       }),
       {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 5000
       }
     );
+    const { access_token, expires_in } = response.data;
+    const expires_at = Date.now() + expires_in * 1000;
+    await fs.writeFile(tokenFile, JSON.stringify({ access_token, expires_at }));
     console.log('TwitCastingアクセストークン取得成功:', response.data);
-    return response.data.access_token;
+    return access_token;
   } catch (err) {
     console.error('TwitCastingアクセストークン取得エラー:', {
       message: err.message,
@@ -2095,13 +2130,13 @@ async function getTwitCastingAccessToken() {
             ephemeral: true
           });
         }
-      } else if (platformData.platform === 'twitcasting') {
+           } else if (platformData.platform === 'twitcasting') {
         try {
           const accessToken = await getTwitCastingAccessToken();
-          const userId = platformData.id;
+          let userId = platformData.id;
           const isGlobalId = platformData.type === 'globalId';
           console.log(`TwitCastingユーザー取得: id=${userId}, type=${platformData.type}`);
-          const response = await axios.get(
+          let response = await axios.get(
             `https://apiv2.twitcasting.tv/users/${userId}`,
             {
               headers: {
@@ -2112,6 +2147,21 @@ async function getTwitCastingAccessToken() {
               timeout: 5000
             }
           );
+          if (!response.data.user && isGlobalId) {
+            console.log(`グローバルID失敗、ユーザー名でリトライ: ${userId}`);
+            userId = userId.replace(/^@?/, ''); // @ を削除（Webhook対応）
+            response = await axios.get(
+              `https://apiv2.twitcasting.tv/users/${userId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'Accept': 'application/json',
+                  'X-Api-Version': '2.0'
+                },
+                timeout: 5000
+              }
+            );
+          }
           if (!response.data.user) {
             throw new Error('ユーザー情報が見つかりません');
           }
