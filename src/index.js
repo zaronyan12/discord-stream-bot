@@ -2008,102 +2008,123 @@ async function getTwitCastingAccessToken() {
           ephemeral: true
         });
       }
-  
       // ユーザー名を取得
       let platformUsername;
-      try {
-  if (platformData.platform === 'youtube') {
-    const params = {
-      part: 'snippet',
-      key: YOUTUBE_API_KEY
-    };
-    if (platformData.type === 'channelId') {
-      params.id = platformData.id;
-    } else if (platformData.type === 'handle') {
-      params.forHandle = platformData.id;
-    }
-    const response = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
-      params,
-      timeout: 5000
-    });
-    const channel = response.data.items?.[0];
-    if (!channel) {
-      console.error(`YouTubeチャンネルが見つかりません: ${platformData.id}`);
-      platformUsername = platformData.id;
-      platformId = platformData.id; // フォールバック
-    } else {
-      platformUsername = channel.snippet.title;
-      platformId = channel.id; // チャンネルIDを保存
-    }
-        } else if (platformData.platform === 'twitch') {
+      let platformId; // platformId を定義
+      if (platformData.platform === 'youtube') {
+        try {
+          const params = {
+            part: 'snippet',
+            key: YOUTUBE_API_KEY
+          };
+          if (platformData.type === 'channelId') {
+            params.id = platformData.id;
+          } else if (platformData.type === 'handle') {
+            params.forHandle = platformData.id;
+          }
+          const response = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+            params,
+            timeout: 5000
+          });
+          const channel = response.data.items?.[0];
+          if (!channel) {
+            console.error(`YouTubeチャンネルが見つかりません: ${platformData.id}`);
+            return interaction.reply({
+              content: `YouTubeチャンネルが見つかりません。URLを確認してください。`,
+              ephemeral: true
+            });
+          }
+          platformUsername = channel.snippet.title;
+          platformId = channel.id; // チャンネルIDを保存
+        } catch (err) {
+          console.error(`ユーザー名取得エラー (YouTube, ID: ${platformData.id}):`, {
+            message: err.message,
+            status: err.response?.status,
+            data: err.response?.data
+          });
+          return interaction.reply({
+            content: `YouTubeアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
+            ephemeral: true
+          });
+        }
+      } else if (platformData.platform === 'twitch') {
+        try {
           const accessToken = await getTwitchAccessToken();
           const response = await axios.get('https://api.twitch.tv/helix/users', {
-            params: { login: platformData.id }, // ユーザー名で検索
+            params: { login: platformData.id },
             headers: {
               'Client-ID': TWITCH_CLIENT_ID,
               'Authorization': `Bearer ${accessToken}`
             },
             timeout: 5000
           });
-          platformUsername = response.data.data?.[0]?.display_name || platformData.id;
-    } else if (platformData.platform === 'twitcasting') {
-  try {
-    const accessToken = await getTwitCastingAccessToken();
-    let userId = platformData.id;
-    if (userId.startsWith('g:')) {
-      userId = userId.replace('g:', '');
-      console.log(`TwitCasting ID修正: ${userId}`);
-    }
-    const response = await axios.get(
-      `https://apiv2.twitcasting.tv/users/${userId}`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 5000
+          const user = response.data.data?.[0];
+          if (!user) {
+            console.error(`Twitchユーザーが見つかりません: ${platformData.id}`);
+            return interaction.reply({
+              content: `Twitchユーザーが見つかりません。URLを確認してください。`,
+              ephemeral: true
+            });
+          }
+          platformUsername = user.display_name;
+          platformId = user.id; // TwitchのユーザーIDを保存
+        } catch (err) {
+          console.error(`ユーザー名取得エラー (Twitch, ID: ${platformData.id}):`, {
+            message: err.message,
+            status: err.response?.status,
+            data: err.response?.data
+          });
+          return interaction.reply({
+            content: `Twitchアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
+            ephemeral: true
+          });
+        }
+      } else if (platformData.platform === 'twitcasting') {
+        try {
+          const accessToken = await getTwitCastingAccessToken();
+          let userId = platformData.id;
+          if (userId.startsWith('g:')) {
+            userId = userId.replace('g:', '');
+            console.log(`TwitCasting ID修正: ${userId}`);
+          }
+          const response = await axios.get(
+            `https://apiv2.twitcasting.tv/users/${userId}`,
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              timeout: 5000
+            }
+          );
+          if (!response.data.user) {
+            throw new Error('ユーザー情報が見つかりません');
+          }
+          platformUsername = response.data.user.name;
+          platformId = response.data.user.id;
+          console.log(`ユーザー名取得成功: ${platformUsername}, ID: ${platformId}`);
+        } catch (err) {
+          console.error(`ユーザー名取得エラー (TwitCasting, ID: ${platformData.id}):`, {
+            message: err.message,
+            status: err.response?.status,
+            data: err.response?.data
+          });
+          return interaction.reply({
+            content: `ツイキャスアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
+            ephemeral: true
+          });
+        }
       }
-    );
-    if (!response.data.user) {
-      throw new Error('ユーザー情報が見つかりません');
-    }
-    platformUsername = response.data.user.name;
-    platformId = response.data.user.id;
-    console.log(`ユーザー名取得成功: ${platformUsername}, ID: ${platformId}`);
-  } catch (err) {
-    console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
-      message: err.message,
-      status: err.response?.status,
-      data: err.response?.data
-    });
-    return interaction.reply({
-      content: `ツイキャスアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
-      ephemeral: true
-    });
-  }
-}
-  } catch (err) {
-    console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
-      message: err.message,
-      status: err.response?.status,
-      data: err.response?.data
-    });
-    return interaction.reply({
-      content: `ツイキャスアカウントのユーザー名を取得できませんでした。管理者に連絡してください。`,
-      ephemeral: true
-    });
-  }
-}
-      } catch (err) {
-        console.error(`ユーザー名取得エラー (${platformData.platform}, ID: ${platformData.id}):`, {
-          message: err.message,
-          status: err.response?.status,
-          data: err.response?.data
+
+      // 重複チェックを platformId で行う
+      if (accounts.some(acc => acc[key] === platformId)) {
+        return interaction.reply({
+          content: `この${platformData.platform}アカウントは別のユーザーで登録済みです。`,
+          ephemeral: true
         });
-        platformUsername = platformData.id; // フォールバック
       }
-  
+
       accounts.push({
         discordId: userId,
-        [key]: platformData.id,
-        [usernameKey]: platformUsername, // 正しいユーザー名を保存
+        [key]: platformId, // platformData.id から platformId に変更
+        [usernameKey]: platformUsername,
         guildIds: [guildId]
       });
       await saveConfigFile(file, accounts);
