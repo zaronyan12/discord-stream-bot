@@ -205,7 +205,7 @@ async function loadStreamers(force = false) {
 
 async function loadYoutubers(force = false) {
   const youtubers = await loadConfigFile(YOUTUBERS_FILE, [], force);
-  return youtubers.map(y => ({ ...y, guildIds: y.guildIds || [] });
+  return youtubers.map(y => ({ ...y, guildIds: y.guildIds || [] }));
 }
 
 async function loadTwitcasters(force = false) {
@@ -2140,7 +2140,7 @@ async function getTwitCastingAccessToken(discordUserId) {
     let tokenData = cache.twitcastingTokens || {};
     if (!cache.twitcastingTokens) {
       try {
-        tokenData = JSON.parse(await fsPromises.readFile(tokenFile, 'utf8') || '{}';
+        tokenData = JSON.parse(await fsPromises.readFile(tokenFile, 'utf8') || '{}');
         cache.twitcastingTokens = tokenData;
       } catch (err) {
         console.log('twitcasting_tokens.jsonが存在しません。新規作成します');
@@ -2592,11 +2592,10 @@ async function getTwitCastingAccessToken(discordUserId) {
           });
         }
   
-        // 修正箇所: process.envから直接環境変数を参照
         const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          process.env.DISCORD_CLIENT_ID
+          DISCORD_CLIENT_ID
         )}&redirect_uri=${encodeURIComponent(
-          process.env.REDIRECT_URI
+          REDIRECT_URI
         )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}`;
   
         await interaction.reply({
