@@ -2592,15 +2592,15 @@ async function getTwitCastingAccessToken(discordUserId) {
           });
         }
   
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
-          DISCORD_CLIENT_ID
-        )}&redirect_uri=${encodeURIComponent(
-          REDIRECT_URI
-        )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}`;
-  
-        await interaction.reply({
-          content: `以下のリンクをクリックして${type}アカウントをリンクしてください:\n${oauthUrl}`,
-          ephemeral: true
+    const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(
+      process.env.DISCORD_CLIENT_ID // 直接参照
+    )}&redirect_uri=${encodeURIComponent(
+      process.env.REDIRECT_URI // 直接参照
+    )}&response_type=code&scope=identify%20connections&state=${type}_${guildId}`;
+
+    await interaction.reply({
+      content: `以下のリンクをクリックして${type}アカウントをリンクしてください:\n${oauthUrl}`,
+      ephemeral: true
         });
       }
     }
