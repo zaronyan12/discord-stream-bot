@@ -230,7 +230,7 @@ async function loadCreators(force = false) {
   const creators = await loadConfigFile(CREATORS_FILE, { creators: [BOT_CREATOR_ID] }, force);
   if (!creators.creators || !Array.isArray(creators.creators)) {
     console.warn('creators.jsonにcreators配列がありません。デフォルトを設定します。');
-    const defaultCreators = { creators: [BOT_CREATER_ID] };
+    const defaultCreators = { creators: [BOT_CREATOR_ID] };
     await saveConfigFile(CREATORS_FILE, defaultCreators);
     return defaultCreators;
   }
