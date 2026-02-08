@@ -35,6 +35,7 @@ const SERVER_SETTINGS_FILE = path.join(DATA_DIR, 'serverSettings.json');
 const ADMINS_FILE = path.join(DATA_DIR, 'admins.json');
 const MAZAKARI_FILE = path.join(DATA_DIR, 'mazakari.json');
 const CREATORS_FILE = path.join(DATA_DIR, 'creators.json');
+const TWITCASTING_TOKENS_FILE = path.join(DATA_DIR, 'twitcasting_tokens.json');
 
 // キャッシュ
 const cache = {
@@ -46,7 +47,7 @@ const cache = {
   admins: null,
   mazakari: null,
   creators: null,
- twitcastingTokens: null
+  twitcastingTokens: null
 };
 
 // 配信中の状態を追跡するキャッシュ
@@ -291,6 +292,161 @@ async function getYouTubeVideoInfo(videoId) {
   }
 }
 
+/**
+ * TwitCastingアクセストークンを取得（改善版）
+ * @param {string} discordUserId DiscordユーザーID
+ * @returns {Promise<string>} アクセストークン
+ */
+async function getTwitCastingAccessToken(discordUserId = 'admin') {
+  try {
+    // キャッシュから読み込み
+    if (!cache.twitcastingTokens) {
+      try {
+        const data = await fsPromises.readFile(TWITCASTING_TOKENS_FILE, 'utf8');
+        cache.twitcastingTokens = JSON.parse(data || '{}');
+      } catch (err) {
+        console.log('twitcasting_tokens.jsonが存在しないか無効です。新規作成します');
+        cache.twitcastingTokens = {};
+        await fsPromises.writeFile(TWITCASTING_TOKENS_FILE, '{}');
+      }
+    }
+
+    // ユーザートークンを確認
+    const userToken = cache.twitcastingTokens[discordUserId];
+    
+    if (userToken && userToken.expires_at > Date.now()) {
+      console.log(`保存済みトークン使用: user=${discordUserId}`);
+      return userToken.access_token;
+    }
+
+    // リフレッシュトークンがある場合は更新
+    if (userToken && userToken.refresh_token) {
+      console.log(`トークン期限切れ、リフレッシュ: user=${discordUserId}`);
+      try {
+        const response = await axios.post(
+          'https://apiv2.twitcasting.tv/oauth2/access_token',
+          new URLSearchParams({
+            client_id: TWITCASTING_CLIENT_ID,
+            client_secret: TWITCASTING_CLIENT_SECRET,
+            grant_type: 'refresh_token',
+            refresh_token: userToken.refresh_token
+          }).toString(),
+          {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json'
+            },
+            timeout: 5000
+          }
+        );
+
+        const { access_token, expires_in, refresh_token } = response.data;
+        const expires_at = Date.now() + expires_in * 1000;
+        
+        // トークンを更新
+        cache.twitcastingTokens[discordUserId] = { 
+          access_token, 
+          expires_at, 
+          refresh_token: refresh_token || userToken.refresh_token 
+        };
+        
+        // ファイルに保存
+        await fsPromises.writeFile(TWITCASTING_TOKENS_FILE, JSON.stringify(cache.twitcastingTokens, null, 2));
+        console.log(`トークン更新成功: user=${discordUserId}`);
+        return access_token;
+      } catch (refreshErr) {
+        console.error(`トークン更新エラー: user=${discordUserId}`, refreshErr.message);
+        // トークンを削除
+        delete cache.twitcastingTokens[discordUserId];
+        await fsPromises.writeFile(TWITCASTING_TOKENS_FILE, JSON.stringify(cache.twitcastingTokens, null, 2));
+      }
+    }
+
+    // 管理者の場合は特別処理
+    if (discordUserId === 'admin') {
+      throw new Error('管理者トークンが取得できません。認証が必要です。');
+    }
+
+    throw new Error(`トークンが取得できません: user=${discordUserId}`);
+  } catch (err) {
+    console.error(`TwitCastingトークン取得エラー: user=${discordUserId}`, {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    throw err;
+  }
+}
+
+/**
+ * TwitCastingユーザー情報を取得
+ * @param {string} userId ユーザーIDまたはスクリーンID
+ * @param {string} accessToken アクセストークン
+ * @returns {Promise<{id: string, screen_id: string, name: string}>} ユーザー情報
+ */
+async function getTwitCastingUserInfo(userId, accessToken) {
+  try {
+    const response = await axios.get(
+      `https://apiv2.twitcasting.tv/users/${userId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'X-Api-Version': '2.0'
+        },
+        timeout: 5000
+      }
+    );
+
+    if (!response.data.user) {
+      throw new Error('ユーザー情報が見つかりません');
+    }
+
+    return {
+      id: response.data.user.id,
+      screen_id: response.data.user.screen_id,
+      name: response.data.user.name
+    };
+  } catch (err) {
+    console.error(`TwitCastingユーザー情報取得エラー: userId=${userId}`, {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    throw err;
+  }
+}
+
+// ==============================================
+// 設定ファイルの自動生成
+// ==============================================
+
+/**
+ * 設定ファイルを初期化
+ */
+async function initializeConfigFiles() {
+  const files = [
+    { path: CONFIG_FILE, defaultValue: { youtubeAccountLimit: 0, twitcastingAccountLimit: 25 } },
+    { path: STREAMERS_FILE, defaultValue: [] },
+    { path: YOUTUBERS_FILE, defaultValue: [] },
+    { path: TWITCASTERS_FILE, defaultValue: [] },
+    { path: SERVER_SETTINGS_FILE, defaultValue: { servers: {} } },
+    { path: ADMINS_FILE, defaultValue: { admins: [BOT_CREATOR_ID] } },
+    { path: MAZAKARI_FILE, defaultValue: { enabled: {}, guilds: {} } },
+    { path: CREATORS_FILE, defaultValue: { creators: [BOT_CREATOR_ID] } },
+    { path: TWITCASTING_TOKENS_FILE, defaultValue: {} }
+  ];
+
+  for (const file of files) {
+    try {
+      await fsPromises.access(file.path);
+    } catch {
+      console.log(`ファイルが存在しないため作成: ${file.path}`);
+      await fsPromises.writeFile(file.path, JSON.stringify(file.defaultValue, null, 2));
+    }
+  }
+}
+
 // ==============================================
 // 配信通知関連関数
 // ==============================================
@@ -504,7 +660,7 @@ if (isGlobalId) {
   console.log(`TwitCasting グローバルID修正: ${cleanedUserId}`);
 } else {
   try {
-    const accessToken = await getTwitCastingAccessToken();
+    const accessToken = await getTwitCastingAccessToken('admin');
     let response = await axios.get(
       `https://apiv2.twitcasting.tv/users/${cleanedUserId}`,
       {
@@ -817,10 +973,10 @@ async function checkTwitchStreams() {
         const expires_at = Date.now() + expires_in * 1000;
 
         // トークン保存
-        const tokenFile = path.join(__dirname, '../data/twitcasting_tokens.json');
-        const tokenData = JSON.parse(await fsPromises.readFile(tokenFile, 'utf8') || '{}');
+        const tokenData = JSON.parse(await fsPromises.readFile(TWITCASTING_TOKENS_FILE, 'utf8') || '{}');
         tokenData[discordUserId] = { access_token, expires_at, refresh_token };
-        await fsPromises.writeFile(tokenFile, JSON.stringify(tokenData, null, 2));
+        await fsPromises.writeFile(TWITCASTING_TOKENS_FILE, JSON.stringify(tokenData, null, 2));
+        cache.twitcastingTokens = tokenData;
         console.log(`TwitCastingトークン保存成功 (ユーザー: ${discordUserId}):`, { access_token, expires_at });
 
         // ユーザー情報取得
@@ -1169,13 +1325,16 @@ app.get('/auth/twitcasting', async (req, res) => {
     console.log('✅ ボットがオンラインになりました！');
   
     try {
+      // 設定ファイルの初期化
+      await initializeConfigFiles();
+      
       console.log('既存のスラッシュコマンドをクリア中...');
       await clearAllCommands();
       const allGuildIds = client.guilds.cache.map(guild => guild.id);
       for (const guildId of allGuildIds) {
         await clearAllCommands(guildId);
       }
-  
+
       const commands = [
         new SlashCommandBuilder()
           .setName('setup_s')
@@ -1238,7 +1397,21 @@ app.get('/auth/twitcasting', async (req, res) => {
           .setDescription('このサーバーに対してツイキャス通知を有効化'),
         new SlashCommandBuilder()
           .setName('link')
-          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
+          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
+        new SlashCommandBuilder()  // 追加: del_accコマンド
+          .setName('del_acc')
+          .setDescription('自分の配信アカウント連携を解除します')
+          .addStringOption(option =>
+            option.setName('platform')
+              .setDescription('解除する配信プラットフォーム')
+              .setRequired(true)
+              .addChoices(
+                { name: 'すべて', value: 'all' },
+                { name: 'Twitch', value: 'twitch' },
+                { name: 'YouTube', value: 'youtube' },
+                { name: 'ツイキャス', value: 'twitcasting' }
+              )
+          )
       ].map(command => command.toJSON());
       
       console.log('[ready] ギルドコマンドをクリア中...');
@@ -1253,7 +1426,7 @@ app.get('/auth/twitcasting', async (req, res) => {
           console.error('コマンド登録先が見つかりません:', guildId);
           return false;
         }
-  
+
         try {
           await target.commands.set(commands);
           console.log(`スラッシュコマンドを登録しました (対象: ${guildId || 'グローバル'})`);
@@ -1263,19 +1436,19 @@ app.get('/auth/twitcasting', async (req, res) => {
           return false;
         }
       }
-  
+
       for (const guildId of guildIds) {
         await registerCommands(guildId);
       }
-  
+
       await loadServerSettings(true);
       await loadCreators(true);
-  
+
       console.log('ライブ配信監視を開始します');
       setInterval(checkTwitchStreams, 60 * 1000);
       await renewSubscriptions();
       setInterval(renewSubscriptions, 24 * 60 * 60 * 1000);
-  
+
       await Promise.all([
         checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err))
       ]);
@@ -1352,12 +1525,26 @@ app.get('/auth/twitcasting', async (req, res) => {
           .setDescription('このサーバーに対してツイキャス通知を有効化'),
         new SlashCommandBuilder()
           .setName('link')
-          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
+          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
+        new SlashCommandBuilder()  // 追加: del_accコマンド
+          .setName('del_acc')
+          .setDescription('自分の配信アカウント連携を解除します')
+          .addStringOption(option =>
+            option.setName('platform')
+              .setDescription('解除する配信プラットフォーム')
+              .setRequired(true)
+              .addChoices(
+                { name: 'すべて', value: 'all' },
+                { name: 'Twitch', value: 'twitch' },
+                { name: 'YouTube', value: 'youtube' },
+                { name: 'ツイキャス', value: 'twitcasting' }
+              )
+          )
       ].map(command => command.toJSON());
       
       await guild.commands.set(slashCommands);
       console.log(`[guildCreate] スラッシュコマンドを登録しました: guild=${guild.id}`);
-  
+
       const serverSettings = await loadServerSettings();
       if (!serverSettings.servers[guild.id]) {
         serverSettings.servers[guild.id] = {};
@@ -2126,76 +2313,149 @@ app.get('/auth/twitcasting', async (req, res) => {
         });
         break;
       }
+  
+      // ==============================================
+      // del_accコマンドの処理
+      // ==============================================
+      case 'del_acc': {
+        const platform = options.getString('platform');
+        const userId = user.id;
+        const guildId = guild.id;
+  
+        try {
+          const removedAccounts = [];
+          const activeStreamsCleared = [];
+  
+          // すべてのプラットフォームを処理
+          const platformsToProcess = platform === 'all' 
+            ? ['twitch', 'youtube', 'twitcasting'] 
+            : [platform];
+  
+          for (const targetPlatform of platformsToProcess) {
+            const platformConfig = {
+              twitch: { 
+                file: STREAMERS_FILE, 
+                loader: loadStreamers, 
+                key: 'twitchId',
+                cacheKey: 'twitch'
+              },
+              youtube: { 
+                file: YOUTUBERS_FILE, 
+                loader: loadYoutubers, 
+                key: 'youtubeId',
+                cacheKey: 'youtube'
+              },
+              twitcasting: { 
+                file: TWITCASTERS_FILE, 
+                loader: loadTwitcasters, 
+                key: 'twitcastingId',
+                cacheKey: 'twitcasting'
+              }
+            };
+  
+            const config = platformConfig[targetPlatform];
+            if (!config) {
+              console.error(`無効なプラットフォーム: ${targetPlatform}`);
+              continue;
+            }
+  
+            const accounts = await config.loader();
+            const accountIndex = accounts.findIndex(a => a.discordId === userId);
+            
+            if (accountIndex !== -1) {
+              const account = accounts[accountIndex];
+              
+              // ギルドIDを更新
+              if (account.guildIds && account.guildIds.includes(guildId)) {
+                account.guildIds = account.guildIds.filter(id => id !== guildId);
+                
+                // ギルドIDが空になった場合はアカウントを削除
+                if (account.guildIds.length === 0) {
+                  accounts.splice(accountIndex, 1);
+                  removedAccounts.push(`${targetPlatform}:${account[config.key]}`);
+                  
+                  // アクティブな配信キャッシュをクリア
+                  if (targetPlatform === 'twitch' && account.twitchId) {
+                    activeStreams.twitch.delete(account.twitchId);
+                    activeStreamsCleared.push('Twitch');
+                  } else if (targetPlatform === 'youtube' && account.youtubeId) {
+                    activeStreams.youtube.delete(account.youtubeId);
+                    activeStreamsCleared.push('YouTube');
+                  } else if (targetPlatform === 'twitcasting' && account.twitcastingId) {
+                    // ツイキャスの場合はliveIdベースでクリア
+                    for (const [liveId, data] of activeStreams.twitcasting.entries()) {
+                      if (data.userId === account.twitcastingId) {
+                        activeStreams.twitcasting.delete(liveId);
+                      }
+                    }
+                    activeStreamsCleared.push('ツイキャス');
+                  }
+                }
+                
+                await saveConfigFile(config.file, accounts);
+                console.log(`アカウント削除: user=${userId}, platform=${targetPlatform}, guild=${guildId}`);
+              }
+            }
+          }
+  
+          if (removedAccounts.length > 0) {
+            // 通知ロールの削除
+            const settings = await loadServerSettings();
+            const guildSettings = settings.servers?.[guildId];
+            
+            if (guildSettings?.notificationRoles) {
+              const member = await guild.members.fetch(userId).catch(() => null);
+              if (member) {
+                for (const targetPlatform of platformsToProcess) {
+                  const roleId = guildSettings.notificationRoles[targetPlatform];
+                  if (roleId) {
+                    try {
+                      await member.roles.remove(roleId);
+                      console.log(`ロール削除成功: user=${userId}, role=${roleId}`);
+                    } catch (roleErr) {
+                      console.error(`ロール削除エラー: user=${userId}`, roleErr.message);
+                    }
+                  }
+                }
+              }
+            }
+  
+            let responseMessage = `✅ ${platform === 'all' ? 'すべての' : platform}アカウント連携を解除しました。\n`;
+            responseMessage += `削除されたアカウント: ${removedAccounts.length}件\n`;
+            
+            if (activeStreamsCleared.length > 0) {
+              responseMessage += `キャッシュクリア: ${activeStreamsCleared.join(', ')}\n`;
+            }
+            
+            await interaction.reply({
+              content: responseMessage,
+              ephemeral: true
+            });
+          } else {
+            await interaction.reply({
+              content: '連携されているアカウントが見つかりませんでした。',
+              ephemeral: true
+            });
+          }
+        } catch (err) {
+          console.error('アカウント削除エラー:', {
+            message: err.message,
+            stack: err.stack,
+            userId,
+            guildId,
+            platform
+          });
+          
+          await interaction.reply({
+            content: 'アカウント削除中にエラーが発生しました。管理者に連絡してください。',
+            ephemeral: true
+          });
+        }
+        break;
+      }
     }
   }
   
-/**
- * TwitCastingアクセストークンを取得
- * @param {string} discordUserId DiscordユーザーID
- * @returns {Promise<string>} アクセストークン
- */
-async function getTwitCastingAccessToken(discordUserId) {
-  const tokenFile = path.join(__dirname, '../data/twitcasting_tokens.json');
-  try {
-    let tokenData = cache.twitcastingTokens || {};
-    if (!cache.twitcastingTokens) {
-      try {
-        tokenData = JSON.parse(await fsPromises.readFile(tokenFile, 'utf8') || '{}');
-        cache.twitcastingTokens = tokenData;
-      } catch (err) {
-        console.log('twitcasting_tokens.jsonが存在しません。新規作成します');
-        await fsPromises.writeFile(tokenFile, '{}');
-        cache.twitcastingTokens = {};
-      }
-    }
-
-    const userToken = tokenData[discordUserId];
-    if (userToken && userToken.expires_at > Date.now()) {
-      console.log(`TwitCasting保存済みトークン使用 (ユーザー: ${discordUserId}):`, userToken.access_token);
-      return userToken.access_token;
-    } else if (userToken && userToken.refresh_token) {
-      console.log(`トークン期限切れ、リフレッシュトークンで更新 (ユーザー: ${discordUserId})`);
-      const response = await axios.post(
-        'https://apiv2.twitcasting.tv/oauth2/access_token',
-        new URLSearchParams({
-          client_id: process.env.TWITCASTING_CLIENT_ID,
-          client_secret: process.env.TWITCASTING_CLIENT_SECRET,
-          grant_type: 'refresh_token',
-          refresh_token: userToken.refresh_token
-        }).toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json'
-          },
-          timeout: 5000
-        }
-      );
-      const { access_token, expires_in, refresh_token } = response.data;
-      const expires_at = Date.now() + expires_in * 1000;
-      tokenData[discordUserId] = { access_token, expires_at, refresh_token: refresh_token || userToken.refresh_token };
-      cache.twitcastingTokens = tokenData;
-      await fsPromises.writeFile(tokenFile, JSON.stringify(tokenData, null, 2));
-      console.log(`TwitCastingトークン更新成功 (ユーザー: ${discordUserId}):`, access_token);
-      return access_token;
-    }
-    throw new Error('トークン未取得');
-  } catch (err) {
-    console.error(`TwitCastingアクセストークン取得エラー (ユーザー: ${discordUserId}):`, {
-      message: err.message,
-      status: err.response?.status,
-      data: err.response?.data,
-      details: JSON.stringify(err.response?.data?.error?.details, null, 2),
-      url: 'https://apiv2.twitcasting.tv/oauth2/access_token'
-    });
-    if (discordUserId === 'admin') {
-      const authUrl = `${process.env.SERVER_URL}/auth/twitcasting?discordUserId=admin`;
-      await notifyAdmin(`管理者トークン取得エラー: ${err.message}\n${authUrl} で認証してください`);
-    }
-    throw err;
-  }
-}
-
   async function handleModalSubmit(interaction) {
     
     if (interaction.customId.startsWith('stream_url_modal_')) {
@@ -2342,91 +2602,64 @@ async function getTwitCastingAccessToken(discordUserId) {
       } else if (platformData.platform === 'twitcasting') {
         const discordUserId = interaction.user.id;
         const guildId = interaction.guildId;
-        let userId = platformData.id;
-        const isGlobalId = platformData.type === 'globalId';
-        if (isGlobalId) userId = userId.replace(/^g:/, '');
-
+        
         try {
-          const accessToken = await getTwitCastingAccessToken(discordUserId);
-          let response;
+          // アクセストークンを取得（ユーザー固有）
+          let accessToken;
           try {
-            response = await axios.get(
-              `https://apiv2.twitcasting.tv/users/${userId}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  'Accept': 'application/json',
-                  'X-Api-Version': '2.0'
-                },
-                timeout: 5000
-              }
-            );
-          } catch (err) {
-            if (isGlobalId && err.response?.status === 400) {
-              console.log(`グローバルID失敗、ユーザー名でリトライ: ${userId}`);
-              userId = userId.replace(/^@?/, '');
-              response = await axios.get(
-                `https://apiv2.twitcasting.tv/users/${userId}`,
-                {
-                  headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Accept': 'application/json',
-                    'X-Api-Version': '2.0'
-                  },
-                  timeout: 5000
-                }
-              );
-            } else {
-              throw err;
-            }
+            accessToken = await getTwitCastingAccessToken(discordUserId);
+          } catch (tokenErr) {
+            // トークンがない場合はOAuthフローへ
+            console.log(`トークンなし、OAuthフロー開始: user=${discordUserId}`);
+            const authUrl = `${process.env.SERVER_URL || 'https://zaronyanbot.com'}/auth/twitcasting?discordUserId=${discordUserId}&twitcastingId=${encodeURIComponent(platformData.id)}&guildId=${guildId}`;
+            
+            await interaction.reply({
+              content: `ツイキャスアカウント連携には認証が必要です。以下のURLをクリックして認証を行ってください:\n\n${authUrl}\n\n認証後、自動的に連携が完了します。`,
+              ephemeral: true
+            });
+            return;
           }
 
-          if (!response.data.user) {
-            throw new Error('ユーザー情報が見つかりません');
+          // ユーザー情報を取得
+          let userIdToQuery = platformData.id;
+          const isGlobalId = platformData.type === 'globalId';
+          if (isGlobalId) {
+            userIdToQuery = userIdToQuery.replace(/^g:/, '');
           }
-          const platformUsername = response.data.user.screen_id;
-          const platformId = response.data.user.id;
-
-          // twitcasters.json に登録
-          const config = await loadConfig();
+          
+          const userInfo = await getTwitCastingUserInfo(userIdToQuery, accessToken);
+          
+          // 重複チェック
           const twitcasters = await loadTwitcasters();
-          if (config.twitcastingAccountLimit > 0 && twitcasters.length >= config.twitcastingAccountLimit) {
+          if (twitcasters.some(t => t.twitcastingId === userInfo.id && t.discordId !== discordUserId)) {
             return interaction.reply({
-              content: 'ツイキャスアカウント登録数が上限に達しています。',
+              content: 'このツイキャスアカウントは他のユーザーで登録済みです。',
               ephemeral: true
             });
           }
 
-          if (twitcasters.some(acc => acc.discordId === discordUserId)) {
-            const account = twitcasters.find(acc => acc.discordId === discordUserId);
-            if (!account.guildIds) account.guildIds = [];
-            if (!account.guildIds.includes(guildId)) {
-              account.guildIds.push(guildId);
-              await saveConfigFile(TWITCASTERS_FILE, twitcasters);
+          // アカウント登録
+          const existingAccount = twitcasters.find(t => t.discordId === discordUserId);
+          if (existingAccount) {
+            // 既存アカウントを更新
+            if (!existingAccount.guildIds.includes(guildId)) {
+              existingAccount.guildIds.push(guildId);
             }
-            return interaction.reply({
-              content: `ツイキャスアカウント (${platformUsername}) はすでにリンクされています。このサーバーで通知を有効化しました。`,
-              ephemeral: true
+            existingAccount.twitcastingId = userInfo.id;
+            existingAccount.twitcastingUsername = userInfo.screen_id;
+          } else {
+            // 新規アカウント登録
+            twitcasters.push({
+              discordId: discordUserId,
+              twitcastingId: userInfo.id,
+              twitcastingUsername: userInfo.screen_id,
+              guildIds: [guildId]
             });
           }
 
-          if (twitcasters.some(acc => acc.twitcastingId === platformId)) {
-            return interaction.reply({
-              content: 'このツイキャスアカウントは別のユーザーで登録済みです。',
-              ephemeral: true
-            });
-          }
-
-          twitcasters.push({
-            discordId: discordUserId,
-            twitcastingId: platformId,
-            twitcastingUsername: platformUsername,
-            guildIds: [guildId]
-          });
           await saveConfigFile(TWITCASTERS_FILE, twitcasters);
 
           // ロール付与
-          const guild = interaction.guild;
           const settings = await loadServerSettings();
           const roleId = settings.servers[guildId]?.notificationRoles?.twitcasting;
           if (roleId) {
@@ -2434,40 +2667,29 @@ async function getTwitCastingAccessToken(discordUserId) {
             if (member) {
               const role = await guild.roles.fetch(roleId).catch(() => null);
               if (role) {
-                const botMember = guild.members.me;
-                const botRole = guild.roles.cache.find(r => r.name === '配信通知BOT' && botMember.roles.cache.has(r.id));
-                if (botRole && botRole.position <= role.position) {
-                  if (botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-                    await guild.roles.setPositions([{ role: botRole.id, position: role.position + 1 }]);
-                    console.log(`[modal] ロール位置調整成功: guild=${guildId}, botRole=${botRole.id}`);
-                  } else {
-                    console.warn(`[modal] ロール位置調整権限なし: guild=${guildId}`);
-                  }
-                }
-                await member.roles.add(roleId).catch(err => console.error(`ロール付与エラー: user=${discordUserId}, role=${roleId}`, err.message));
-                console.log(`[modal] ロール付与成功: user=${discordUserId}, role=${roleId}`);
+                await member.roles.add(roleId);
               }
             }
           }
 
           await interaction.reply({
-            content: `ツイキャスアカウント (${platformUsername}) をサーバー ${guild.name} でリンクしました！`,
+            content: `✅ ツイキャスアカウント (${userInfo.screen_id}) を連携しました！`,
             ephemeral: true
           });
+
         } catch (err) {
-          console.error(`ユーザー名取得エラー (TwitCasting, ID: ${userId}, Type: ${platformData.type}, User: ${discordUserId}):`, {
+          console.error(`ツイキャス連携エラー: user=${discordUserId}`, {
             message: err.message,
-            status: err.response?.status,
-            data: err.response?.data,
-            details: JSON.stringify(err.response?.data?.error?.details, null, 2),
-            url: `https://apiv2.twitcasting.tv/users/${userId}`
+            stack: err.stack
           });
-          const authUrl = `${process.env.SERVER_URL}/auth/twitcasting?discordUserId=${discordUserId}&twitcastingId=${encodeURIComponent(platformData.id)}&guildId=${guildId}`;
-          return interaction.reply({
+          
+          const authUrl = `${process.env.SERVER_URL || 'https://zaronyanbot.com'}/auth/twitcasting?discordUserId=${discordUserId}&twitcastingId=${encodeURIComponent(platformData.id)}&guildId=${guildId}`;
+          await interaction.reply({
             content: `ツイキャスアカウントの認証が必要です。以下のURLをクリックして認証してください:\n${authUrl}\n認証後、自動でアカウントがリンクされます。`,
             ephemeral: true
           });
         }
+        return;
       }
   
       // 重複チェックを platformId で行う
