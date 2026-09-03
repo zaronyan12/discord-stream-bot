@@ -470,19 +470,34 @@ app.post('/webhook/twitcasting', async (req, res) => {
     console.log('TwitCasting Webhook受信 (POST):', { clientIp, body: req.body });
 
     // イベントタイプチェック
-    const { event, user_id: userId, user_name: userName, movie_id: liveId, title } = req.body;
-    if (event !== 'live_start') {
-      console.log(`イベント無視: ${event}`);
+    // 実際のTwitCasting Webhookは event: 'livestart'（アンダースコアなし）で送られてくる。
+    // また user_id / user_name / movie_id / title はトップレベルではなく、
+    // movie / broadcaster オブジェクトの中にネストされている。
+    // （旧コードはこの形式に合っておらず、常に無視されて通知が飛ばない原因になっていた）
+    const data = req.body || {};
+    if (data.event !== 'livestart') {
+      console.log(`イベント無視: ${data.event}`);
       return res.status(200).end();
     }
 
+    const movie = data.movie || {};
+    const broadcaster = data.broadcaster || {};
+
+    const rawUserId = movie.user_id || broadcaster.id;
+    const userName = broadcaster.name || broadcaster.screen_id;
+    const liveId = movie.id;
+    const title = movie.title;
+
     // 必須パラメータチェック
-    if (!userId || !userName || !liveId || !title) {
+    if (!rawUserId || !userName || !liveId || !title) {
       console.warn('無効なWebhookデータ受信:', req.body);
       return res.status(200).end();
     }
 
-    console.log('TwitCasting Webhook受信:', { userId, userName, liveId, title, event });
+    // g:プレフィックスを削除（付与されているケースに備えて念のため）
+    const userId = String(rawUserId).startsWith('g:') ? String(rawUserId).replace('g:', '') : String(rawUserId);
+
+    console.log('TwitCasting Webhook受信:', { userId, userName, liveId, title, event: data.event });
 
     const twitcasters = await loadTwitcasters(true);
     const twitcaster = twitcasters.find(t => t.twitcastingId === userId);
@@ -585,6 +600,7 @@ async function checkTwitchStreams() {
 async function checkTwitchStreamsInternal() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
+  let streamersChanged = false; // 表示名の自動更新があった場合にtbs.jsonへ保存するためのフラグ
 
   let accessToken;
   try {
@@ -612,8 +628,20 @@ async function checkTwitchStreamsInternal() {
       const cachedStream = activeStreams.twitch.get(streamer.twitchId);
 
       if (currentStream) {
-        const { id: streamId, title, thumbnail_url } = currentStream;
-        
+        // user_login: URLに使う正しいログイン名（英数字のスラッグ、変更されにくい）
+        // user_name: 表示名（display_nameと同じ。日本語などの場合ログイン名と全く別文字列になり得る）
+        // 以前は streamer.twitchUsername（登録時に保存したdisplay_name）をURLにそのまま
+        // 使っていたため、ログイン名と表示名が異なるアカウントではURLが壊れていた。
+        // Twitch側から毎回新鮮な値が取れるのでAPIレスポンスの値を使うようにする。
+        const { id: streamId, title, thumbnail_url, user_login: currentLogin, user_name: currentDisplayName } = currentStream;
+
+        // Twitch側の表示名変更をtbs.jsonに反映しておく（次回以降も最新の名前で表示されるように）
+        if (currentDisplayName && streamer.twitchUsername !== currentDisplayName) {
+          console.log(`[checkTwitchStreams] 表示名の変更を検知: ${streamer.twitchUsername} → ${currentDisplayName}`);
+          streamer.twitchUsername = currentDisplayName;
+          streamersChanged = true;
+        }
+
         if (!cachedStream || cachedStream.streamId !== streamId) {
           for (const guildId of streamer.guildIds || []) {
             const settings = serverSettings.servers?.[guildId];
@@ -627,7 +655,7 @@ async function checkTwitchStreamsInternal() {
               continue;
             }
 
-            let discordUsername = streamer.twitchUsername;
+            let discordUsername = currentDisplayName || streamer.twitchUsername;
             let discordId = streamer.discordId; // discordIdを別途取得
             try {
               const guild = client.guilds.cache.get(guildId);
@@ -661,11 +689,11 @@ async function checkTwitchStreamsInternal() {
 
             await sendStreamNotification({
               platform: 'twitch',
-              username: streamer.twitchUsername,
+              username: currentDisplayName || streamer.twitchUsername,
               discordUsername,
               discordId, // discordIdを渡す
               title,
-              url: `https://www.twitch.tv/${streamer.twitchUsername}`,
+              url: `https://www.twitch.tv/${currentLogin || streamer.twitchUsername}`,
               guildId,
               channelId: settings.channelId,
               roleId: settings.notificationRoles.twitch,
@@ -686,6 +714,10 @@ async function checkTwitchStreamsInternal() {
         response: err.response?.data
       });
     }
+  }
+
+  if (streamersChanged) {
+    await saveConfigFile(STREAMERS_FILE, streamers);
   }
 }
   // ==============================================
@@ -855,7 +887,21 @@ async function checkTwitchStreamsInternal() {
       }
     }
   }
-  
+
+  /**
+   * 登録済みの全TwitCastingユーザーについて、livestart Webhook購読を
+   * (再)実行する。以前はアカウント登録時に一度も購読していなかったため、
+   * 既存の登録者に対してもここで購読させる（購読済みでも呼び直して問題ない仕様）。
+   */
+  async function renewTwitCastingSubscriptions() {
+    const twitcasters = await loadTwitcasters();
+
+    for (const twitcaster of twitcasters) {
+      if (!twitcaster.twitcastingId) continue;
+      await subscribeTwitCastingWebhook(twitcaster.twitcastingId);
+    }
+  }
+
   // ==============================================
   // Expressルート
   // ==============================================
@@ -959,8 +1005,14 @@ async function checkTwitchStreamsInternal() {
           guildIds: [guildId]
         });
         await saveConfigFile(file, accounts);
+
+        if (type === 'twitcasting') {
+          // TwitCastingは登録するだけでは配信通知Webhookが届かないため、
+          // ユーザーごとに明示的にlivestartイベントを購読する必要がある
+          await subscribeTwitCastingWebhook(platformId);
+        }
       }
-  
+
       console.log(`${type}アカウントをリンク: ${platformUsername} (${platformId})`);
   
       const guild = client.guilds.cache.get(guildId);
@@ -1192,6 +1244,17 @@ async function checkTwitchStreamsInternal() {
 
       await renewSubscriptions();
       setInterval(renewSubscriptions, 24 * 60 * 60 * 1000);
+
+      // TwitCasting通知が届いていなかった問題への対応:
+      // 既存の登録者を含めてlivestart Webhookを(再)購読する
+      await renewTwitCastingSubscriptions().catch(err =>
+        console.error('TwitCastingサブスクリプション更新エラー:', err.message)
+      );
+      setInterval(() => {
+        renewTwitCastingSubscriptions().catch(err =>
+          console.error('TwitCastingサブスクリプション更新エラー:', err.message)
+        );
+      }, 24 * 60 * 60 * 1000);
 
       // 退出メンバーのクリーンアップを開始（毎日0時 + /cleanup_members コマンドで実行可能）
       scheduleDailyMemberCleanup();
@@ -2098,6 +2161,57 @@ async function getTwitCastingAccessToken() {
     throw err;
   }
 }
+
+/**
+ * 指定したTwitCastingユーザーのlivestartイベントをWebhook購読する。
+ * これを実行しない限り、TwitCasting側は/webhook/twitcastingへ何も送ってこない
+ * （アカウントをtwitcasters.jsonに保存しただけでは通知は届かない）。
+ * 事前にTwitCastingの開発者ページ(https://twitcasting.tv/developer.php)で
+ * このアプリにWebhook URL(例: https://zaronyanbot.com/webhook/twitcasting)を
+ * 登録しておく必要がある（未登録だとエラーコード1002が返る）。
+ * @param {string} twitcastingUserId 購読対象のTwitCastingユーザーID
+ * @returns {Promise<boolean>} 購読に成功したか
+ */
+async function subscribeTwitCastingWebhook(twitcastingUserId) {
+  try {
+    const authHeader = 'Basic ' + Buffer.from(
+      `${TWITCASTING_CLIENT_ID}:${TWITCASTING_CLIENT_SECRET}`
+    ).toString('base64');
+
+    const response = await axios.post(
+      'https://apiv2.twitcasting.tv/webhooks',
+      {
+        user_id: twitcastingUserId,
+        events: ['livestart']
+      },
+      {
+        headers: {
+          Authorization: authHeader,
+          Accept: 'application/json',
+          'X-Api-Version': '2.0',
+          'Content-Type': 'application/json'
+        },
+        timeout: 5000
+      }
+    );
+
+    console.log(`TwitCasting Webhook購読成功: user_id=${twitcastingUserId}`, response.data);
+    return true;
+  } catch (err) {
+    console.error(`TwitCasting Webhook購読エラー: user_id=${twitcastingUserId}`, {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data
+    });
+    if (err.response?.data?.error?.code === 1002) {
+      console.error(
+        '→ TwitCastingの開発者ページ(https://twitcasting.tv/developer.php)でこのアプリのWebhook URLが登録されていない可能性があります。'
+      );
+    }
+    return false;
+  }
+}
+
   async function handleModalSubmit(interaction) {
     
     if (interaction.customId.startsWith('stream_url_modal_')) {
@@ -2254,7 +2368,13 @@ async function getTwitCastingAccessToken() {
         guildIds: [guildId]
       });
       await saveConfigFile(file, accounts);
-  
+
+      if (platformData.platform === 'twitcasting') {
+        // TwitCastingは登録するだけでは配信通知Webhookが届かないため、
+        // ユーザーごとに明示的にlivestartイベントを購読する必要がある
+        await subscribeTwitCastingWebhook(platformData.id);
+      }
+
       console.log(`アカウントリンク成功: platform=${platformData.platform}, userId=${userId}, username=${platformUsername}, id=${platformData.id}`);
   
       const settings = await loadServerSettings();
