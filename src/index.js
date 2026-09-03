@@ -1,4 +1,4 @@
-  const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, TextInputBuilder, TextInputStyle, ModalBuilder, ChannelType, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, TextInputBuilder, TextInputStyle, ModalBuilder, ChannelType, AttachmentBuilder } = require('discord.js');
   const express = require('express');
   const axios = require('axios');
   const iconv = require('iconv-lite');
@@ -564,10 +564,28 @@ app.post('/webhook/twitcasting', async (req, res) => {
   // ==============================================
   // 配信チェック関数
   // ==============================================
+// 2重通知防止用ロック: 前回のチェックが完了する前に次のチェックが
+// 走らないようにする（Twitch通知が2重に送られる主な原因だったため）
+let isCheckingTwitchStreams = false;
+
 async function checkTwitchStreams() {
+  if (isCheckingTwitchStreams) {
+    console.warn('[checkTwitchStreams] 前回のチェックがまだ実行中のためスキップします（2重通知防止）');
+    return;
+  }
+  isCheckingTwitchStreams = true;
+
+  try {
+    await checkTwitchStreamsInternal();
+  } finally {
+    isCheckingTwitchStreams = false;
+  }
+}
+
+async function checkTwitchStreamsInternal() {
   const streamers = await loadStreamers();
   const serverSettings = await loadServerSettings();
-  
+
   let accessToken;
   try {
     accessToken = await getTwitchAccessToken();
@@ -671,9 +689,140 @@ async function checkTwitchStreams() {
   }
 }
   // ==============================================
+  // 退出メンバー クリーンアップ関数
+  // ==============================================
+
+  /**
+   * 配信通知BOTが導入されているサーバーに、登録済みのDiscordユーザーが
+   * もういない（サーバーを抜けた等）場合、その登録を削除する。
+   * - 該当ユーザーがそのサーバーにいなければ、そのサーバーへのリンク(guildIds)を削除
+   * - 全てのサーバーから抜けていたら、アカウント登録自体を削除
+   *
+   * @param {string} triggeredBy ログ用: 実行元（'scheduled' や '手動実行(ユーザー名)' など）
+   * @returns {Promise<Object>} プラットフォームごとの削除件数サマリー
+   */
+  async function cleanupLeftMembers(triggeredBy = 'scheduled') {
+    console.log(`[cleanup] 退出メンバーのクリーンアップを開始 (トリガー: ${triggeredBy})`);
+
+    // ギルドごとのメンバーID一覧をキャッシュし、APIコール数を抑える
+    // （アカウント1件ずつ member.fetch() すると件数が多い場合にレート制限にかかりやすいため）
+    const guildMemberCache = new Map();
+
+    async function isStillGuildMember(guildId, discordId) {
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) {
+        // ボットがそのサーバーから既にいない（Kick/退出済み）
+        return false;
+      }
+
+      if (!guildMemberCache.has(guildId)) {
+        try {
+          const members = await guild.members.fetch();
+          guildMemberCache.set(guildId, new Set(members.keys()));
+        } catch (err) {
+          console.error(`[cleanup] メンバー一覧取得エラー: guild=${guildId}`, err.message);
+          // 取得に失敗した場合は誤って削除しないよう「在籍している」扱いにする
+          guildMemberCache.set(guildId, null);
+        }
+      }
+
+      const memberIdSet = guildMemberCache.get(guildId);
+      if (memberIdSet === null) return true;
+      return memberIdSet.has(discordId);
+    }
+
+    const platforms = [
+      { file: STREAMERS_FILE, loader: loadStreamers, label: 'Twitch' },
+      { file: YOUTUBERS_FILE, loader: loadYoutubers, label: 'YouTube' },
+      { file: TWITCASTERS_FILE, loader: loadTwitcasters, label: 'TwitCasting' }
+    ];
+
+    const summary = {};
+
+    for (const { file, loader, label } of platforms) {
+      const accounts = await loader(true);
+      let removedGuildLinks = 0;
+      let removedAccounts = 0;
+      const updatedAccounts = [];
+
+      for (const account of accounts) {
+        const guildIds = account.guildIds || [];
+        const remainingGuildIds = [];
+
+        for (const guildId of guildIds) {
+          const stillMember = await isStillGuildMember(guildId, account.discordId);
+          if (stillMember) {
+            remainingGuildIds.push(guildId);
+          } else {
+            removedGuildLinks++;
+            console.log(`[cleanup] サーバーリンク削除: platform=${label}, discordId=${account.discordId}, guild=${guildId}`);
+          }
+        }
+
+        if (remainingGuildIds.length > 0) {
+          updatedAccounts.push(
+            remainingGuildIds.length === guildIds.length ? account : { ...account, guildIds: remainingGuildIds }
+          );
+        } else {
+          removedAccounts++;
+          console.log(`[cleanup] アカウント削除: platform=${label}, discordId=${account.discordId} (在籍サーバーなし)`);
+        }
+      }
+
+      if (removedGuildLinks > 0 || removedAccounts > 0) {
+        await saveConfigFile(file, updatedAccounts);
+      }
+
+      summary[label] = {
+        元の件数: accounts.length,
+        削除アカウント数: removedAccounts,
+        削除リンク数: removedGuildLinks,
+        残存件数: updatedAccounts.length
+      };
+    }
+
+    console.log('[cleanup] クリーンアップ完了:', summary);
+    return summary;
+  }
+
+  /**
+   * 次回のJST 0時までのミリ秒数を計算する（サーバーのタイムゾーン設定に依存しない）
+   * @returns {number} 次回JST 0時までのミリ秒
+   */
+  function msUntilNextJstMidnight() {
+    const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+    const now = new Date();
+    const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
+    const jstNextMidnightUtc = Date.UTC(
+      jstNow.getUTCFullYear(),
+      jstNow.getUTCMonth(),
+      jstNow.getUTCDate() + 1,
+      0, 0, 0, 0
+    );
+    const nextMidnightRealUtcMs = jstNextMidnightUtc - JST_OFFSET_MS;
+    return nextMidnightRealUtcMs - now.getTime();
+  }
+
+  /**
+   * 退出メンバーのクリーンアップを毎日日本時間0時に自動実行するようスケジュールする
+   */
+  function scheduleDailyMemberCleanup() {
+    function run() {
+      cleanupLeftMembers('毎日0時の自動実行').catch(err =>
+        console.error('[cleanup] 定期クリーンアップエラー:', err.message)
+      );
+      setTimeout(run, 24 * 60 * 60 * 1000);
+    }
+
+    const delay = msUntilNextJstMidnight();
+    console.log(`[cleanup] 次回自動クリーンアップまで約${Math.round(delay / 60000)}分 (毎日 日本時間0時に実行)`);
+    setTimeout(run, delay);
+  }
+
+  // ==============================================
   // その他の関数
   // ==============================================
-  
+
   /**
    * WebSubサブスクリプションの更新
    */
@@ -991,7 +1140,10 @@ async function checkTwitchStreams() {
           .setDescription('このサーバーに対してツイキャス通知を有効化'),
         new SlashCommandBuilder()
           .setName('link')
-          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
+          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
+        new SlashCommandBuilder()
+          .setName('cleanup_members')
+          .setDescription('サーバーを抜けたメンバーの配信通知登録を削除します（管理者専用）')
       ].map(command => command.toJSON());
       
       console.log('[ready] ギルドコマンドをクリア中...');
@@ -1025,13 +1177,24 @@ async function checkTwitchStreams() {
       await loadCreators(true);
   
       console.log('ライブ配信監視を開始します');
-      setInterval(checkTwitchStreams, 60 * 1000);
+      // setIntervalではなく「前回の処理が完了してから次を予約する」方式にする。
+      // setIntervalだと配信者数が多い等の理由でチェックが60秒を超えた場合に
+      // 次のチェックと重複実行されてしまい、Twitch通知が2重に送られる原因になっていた。
+      function scheduleNextTwitchCheck() {
+        setTimeout(async () => {
+          await checkTwitchStreams().catch(err => console.error('Twitchチェックエラー:', err));
+          scheduleNextTwitchCheck();
+        }, 60 * 1000);
+      }
+
+      await checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err));
+      scheduleNextTwitchCheck();
+
       await renewSubscriptions();
       setInterval(renewSubscriptions, 24 * 60 * 60 * 1000);
-  
-      await Promise.all([
-        checkTwitchStreams().catch(err => console.error('初回Twitchチェックエラー:', err))
-      ]);
+
+      // 退出メンバーのクリーンアップを開始（毎日0時 + /cleanup_members コマンドで実行可能）
+      scheduleDailyMemberCleanup();
     } catch (err) {
       console.error('初期化エラー:', {
         message: err.message,
@@ -1105,7 +1268,10 @@ async function checkTwitchStreams() {
           .setDescription('このサーバーに対してツイキャス通知を有効化'),
         new SlashCommandBuilder()
           .setName('link')
-          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク')
+          .setDescription('Twitch, YouTube, ツイキャスのアカウントをリンク'),
+        new SlashCommandBuilder()
+          .setName('cleanup_members')
+          .setDescription('サーバーを抜けたメンバーの配信通知登録を削除します（管理者専用）')
       ].map(command => command.toJSON());
       
       await guild.commands.set(slashCommands);
@@ -1572,7 +1738,7 @@ async function checkTwitchStreams() {
           .setCustomId('message')
           .setLabel('送信するメッセージ')
           .setStyle(TextInputStyle.Paragraph)
-          ('サーバー管理者に送信するメッセージを入力')
+          .setPlaceholder('サーバー管理者に送信するメッセージを入力')
           .setRequired(true);
   
         modal.addComponents(
@@ -1877,6 +2043,32 @@ async function checkTwitchStreams() {
           components: [row],
           ephemeral: false
         });
+        break;
+      }
+
+      case 'cleanup_members': {
+        if (!isAdmin) {
+          return interaction.reply({
+            content: 'このコマンドは管理者にしか使用できません。',
+            ephemeral: true
+          });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        try {
+          const summary = await cleanupLeftMembers(`手動実行 (${user.tag})`);
+          const lines = Object.entries(summary).map(([label, s]) =>
+            `- ${label}: アカウント削除 ${s.削除アカウント数}件 / サーバーリンク削除 ${s.削除リンク数}件（残存 ${s.残存件数}件）`
+          );
+          await interaction.editReply({
+            content: `退出メンバーのクリーンアップが完了しました。\n${lines.join('\n')}`
+          });
+        } catch (err) {
+          console.error('[cleanup_members] エラー:', err.message);
+          await interaction.editReply({
+            content: `クリーンアップ中にエラーが発生しました: ${err.message}`
+          });
+        }
         break;
       }
     }
